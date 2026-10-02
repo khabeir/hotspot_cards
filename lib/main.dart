@@ -172,18 +172,65 @@ class _HomeScreenState extends State<HomeScreen> {
       type: FileType.custom,
       allowedExtensions: ['csv'],
       withData: true,
+      allowMultiple: true,
     );
 
-    if (result == null || result.files.single.bytes == null) {
+    if (result == null || result.files.isEmpty) {
       return;
     }
 
-    await importCsvBytes(
-      result.files.single.bytes!,
-    );
+    int totalAdded = 0;
+    int totalDuplicates = 0;
+
+    for (final file in result.files) {
+      if (file.bytes == null || file.bytes!.isEmpty) {
+        continue;
+      }
+
+      final result = await importCsvBytes(
+        file.bytes!,
+      );
+
+      totalAdded += result.added;
+      totalDuplicates += result.duplicates;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      filter = VoucherFilter.all;
+      selectedProfile = 'الكل';
+      searchController.clear();
+    });
+
+    await saveVouchers();
+
+    if (totalAdded == 0 && totalDuplicates == 0) {
+      showMessage(
+        'لم يتم العثور على كروت جديدة في الملفات المحددة',
+      );
+      return;
+    }
+
+    String message =
+        'تمت إضافة $totalAdded كرت بنجاح';
+
+    if (totalDuplicates > 0) {
+      message +=
+          '\nتم تجاهل $totalDuplicates كرت مكرر';
+    }
+
+    showMessage(message);
   }
 
-  Future<void> importCsvBytes(List<int> bytes) async {
+  Future<({int added, int duplicates})> importCsvBytes(
+    List<int> bytes,
+  ) async {
+    int addedCount = 0;
+    int duplicateCount = 0;
+
     try {
       var content = utf8.decode(
         bytes,
@@ -191,7 +238,10 @@ class _HomeScreenState extends State<HomeScreen> {
       );
 
       // إزالة BOM إن وجد.
-      content = content.replaceFirst('\uFEFF', '');
+      content = content.replaceFirst(
+        '\uFEFF',
+        '',
+      );
 
       final rows = const CsvToListConverter(
         shouldParseNumbers: false,
@@ -199,8 +249,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ).convert(content);
 
       if (rows.isEmpty) {
-        showMessage('ملف CSV فارغ');
-        return;
+        return (
+          added: 0,
+          duplicates: 0,
+        );
       }
 
       final headers = rows.first
@@ -232,33 +284,95 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (usernameIndex == -1 ||
           profileIndex == -1) {
-        showMessage(
-          'ملف غير متوافق. يجب أن يحتوي على Username و Profile',
+        return (
+          added: 0,
+          duplicates: 0,
         );
-        return;
       }
 
-      final imported = <Voucher>[];
+      String value(
+        List<dynamic> row,
+        int index,
+      ) {
+        if (index < 0 ||
+            index >= row.length) {
+          return '';
+        }
 
+        return row[index]
+            .toString()
+            .trim();
+      }
+
+      // --------------------------------------------------------
+      // مفاتيح الكروت الموجودة حالياً.
+      //
+      // Username + Profile
+      // مثال:
+      // 1234567 + 3H
+      // 1234567 + 12H
+      // يعتبران كرتين مختلفين.
+      // --------------------------------------------------------
+      final existingKeys = <String>{
+        for (final voucher in vouchers)
+          _voucherKey(
+            voucher.username,
+            voucher.profile,
+          ),
+      };
+
+      // IDs الموجودة بالفعل.
+      final usedIds = <int>{
+        for (final voucher in vouchers)
+          voucher.id,
+      };
+
+      int nextId = 1;
+
+      if (usedIds.isNotEmpty) {
+        nextId = usedIds.reduce(
+              (a, b) => a > b ? a : b,
+            ) +
+            1;
+      }
+
+      // --------------------------------------------------------
+      // معالجة كل صف من الملف.
+      // --------------------------------------------------------
       for (int i = 1; i < rows.length; i++) {
         final row = rows[i];
 
-        String value(int index) {
-          if (index < 0 || index >= row.length) {
-            return '';
-          }
-
-          return row[index].toString().trim();
-        }
-
-        final username = value(usernameIndex);
+        final username = value(
+          row,
+          usernameIndex,
+        );
 
         if (username.isEmpty) {
           continue;
         }
 
-        final soldText =
-            value(soldIndex).toLowerCase();
+        final profile = value(
+          row,
+          profileIndex,
+        );
+
+        final key = _voucherKey(
+          username,
+          profile,
+        );
+
+        // ------------------------------------------------------
+        // منع التكرار.
+        // ------------------------------------------------------
+        if (existingKeys.contains(key)) {
+          duplicateCount++;
+          continue;
+        }
+
+        final soldText = value(
+          row,
+          soldIndex,
+        ).toLowerCase();
 
         final isSold =
             soldText == 'yes' ||
@@ -267,49 +381,90 @@ class _HomeScreenState extends State<HomeScreen> {
             soldText == 'نعم' ||
             soldText == 'مباع';
 
-        final importedId =
-            int.tryParse(value(idIndex));
+        // ------------------------------------------------------
+        // ID:
+        // إذا كان ID موجودًا وغير مستخدم نحتفظ به.
+        // إذا لم يكن صالحًا، نعطي الكرت ID جديدًا.
+        // ------------------------------------------------------
+        int id = int.tryParse(
+              value(row, idIndex),
+            ) ??
+            0;
 
-        imported.add(
+        if (id <= 0 || usedIds.contains(id)) {
+          while (usedIds.contains(nextId)) {
+            nextId++;
+          }
+
+          id = nextId;
+          nextId++;
+        }
+
+        usedIds.add(id);
+
+        // ------------------------------------------------------
+        // إضافة الكرت مباشرة إلى القائمة الحالية.
+        // لا نستخدم:
+        //
+        // vouchers = imported;
+        //
+        // لأن ذلك كان سبب اختفاء الملفات السابقة.
+        // ------------------------------------------------------
+        vouchers.add(
           Voucher(
-            id: importedId ??
-                imported.length + 1,
+            id: id,
             username: username,
-            password: value(passwordIndex),
-            profile: value(profileIndex),
-            timeLimit: value(timeIndex),
-            dataLimit: value(dataIndex),
-            comment: value(commentIndex),
+            password: value(
+              row,
+              passwordIndex,
+            ),
+            profile: profile,
+            timeLimit: value(
+              row,
+              timeIndex,
+            ),
+            dataLimit: value(
+              row,
+              dataIndex,
+            ),
+            comment: value(
+              row,
+              commentIndex,
+            ),
             sold: isSold,
-            buyerName: value(buyerNameIndex),
-            soldTime: value(soldTimeIndex),
+            buyerName: value(
+              row,
+              buyerNameIndex,
+            ),
+            soldTime: value(
+              row,
+              soldTimeIndex,
+            ),
           ),
         );
+
+        existingKeys.add(key);
+        addedCount++;
       }
 
-      if (imported.isEmpty) {
-        showMessage(
-          'لم يتم العثور على كروت داخل الملف',
-        );
-        return;
-      }
-
-      setState(() {
-        vouchers = imported;
-        filter = VoucherFilter.all;
-        searchController.clear();
-      });
-
-      await saveVouchers();
-
-      showMessage(
-        'تم استيراد ${imported.length} كرت بنجاح',
+      return (
+        added: addedCount,
+        duplicates: duplicateCount,
       );
-    } catch (e) {
-      showMessage(
-        'حدث خطأ أثناء قراءة ملف CSV',
+    } catch (_) {
+      return (
+        added: addedCount,
+        duplicates: duplicateCount,
       );
     }
+  }
+
+  String _voucherKey(
+    String username,
+    String profile,
+  ) {
+    return '${username.trim().toLowerCase()}|'
+        '${profile.trim().toLowerCase()}';
   }
 
   Future<void> sellVoucher(Voucher voucher) async {
