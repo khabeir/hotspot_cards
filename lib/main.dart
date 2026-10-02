@@ -110,6 +110,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Voucher> vouchers = [];
   VoucherFilter filter = VoucherFilter.all;
 
+  // فلتر حسب Profile
+  String selectedProfile = 'الكل';
+
   final TextEditingController searchController =
       TextEditingController();
 
