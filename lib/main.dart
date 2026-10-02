@@ -1043,6 +1043,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   : _buildVoucherList(),
             ),
             _buildAppFooter(),
+            const SizedBox(height: 80),
           ],
         ),
         floatingActionButton:
