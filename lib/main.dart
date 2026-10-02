@@ -4,6 +4,7 @@ import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart';
 
 void main() {
   runApp(const HotspotCardsApp());
@@ -339,6 +340,14 @@ class _HomeScreenState extends State<HomeScreen> {
     showMessage(
       'تم تسجيل بيع الكرت ${voucher.username}',
     );
+  }
+
+  Future<void> shareVoucher(Voucher voucher) async {
+    final text = voucher.timeLimit.isEmpty
+        ? 'كرت الإنترنت: ${voucher.username}'
+        : 'كرت الإنترنت: ${voucher.username}\nالباقة: ${voucher.profile}\nالمدة: ${voucher.timeLimit}';
+
+    await Share.share(text);
   }
 
   Future<void> undoSale(Voucher voucher) async {
@@ -738,23 +747,37 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
-                    if (!voucher.sold)
-                      FilledButton(
-                        onPressed: () {
-                          sellVoucher(voucher);
-                        },
-                        child: const Text('✓ بيع'),
-                      )
-                    else
-                      IconButton(
-                        tooltip: 'إلغاء البيع',
-                        onPressed: () {
-                          undoSale(voucher);
-                        },
-                        icon: const Icon(
-                          Icons.undo,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'إرسال رقم الكرت',
+                          onPressed: () {
+                            shareVoucher(voucher);
+                          },
+                          icon: const Icon(
+                            Icons.share,
+                          ),
                         ),
-                      ),
+                        if (!voucher.sold)
+                          FilledButton(
+                            onPressed: () {
+                              sellVoucher(voucher);
+                            },
+                            child: const Text('✓ بيع'),
+                          )
+                        else
+                          IconButton(
+                            tooltip: 'إلغاء البيع',
+                            onPressed: () {
+                              undoSale(voucher);
+                            },
+                            icon: const Icon(
+                              Icons.undo,
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
                 if (voucher.sold) ...[
