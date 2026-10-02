@@ -649,11 +649,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
+  List<Voucher> get statsVouchers {
+    if (selectedProfile == 'الكل') {
+      return vouchers;
+    }
+
+    return vouchers
+        .where((v) => v.profile == selectedProfile)
+        .toList();
+  }
+
+  int get totalCount => statsVouchers.length;
+
   int get soldCount =>
-      vouchers.where((v) => v.sold).length;
+      statsVouchers.where((v) => v.sold).length;
 
   int get availableCount =>
-      vouchers.where((v) => !v.sold).length;
+      statsVouchers.where((v) => !v.sold).length;
 
   Future<String> createCsv({
     required bool remainingOnly,
@@ -983,7 +995,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _statCard(
             'الإجمالي',
-            vouchers.length,
+            totalCount,
             Icons.confirmation_number,
           ),
           _statCard(
