@@ -170,7 +170,68 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<bool> verifyImportCode() async {
+    final now = DateTime.now();
+    final expectedCode = now.day * 999 * now.month;
+
+    final controller = TextEditingController();
+
+    final enteredCode = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('رمز السماح بالاستيراد'),
+          content: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'أدخل رمز اليوم',
+              hintText: 'رمز الاستيراد',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop(controller.text.trim());
+              },
+              child: const Text('تحقق'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+
+    if (enteredCode == null) {
+      return false;
+    }
+
+    if (enteredCode == expectedCode.toString()) {
+      return true;
+    }
+
+    if (mounted) {
+      showMessage('رمز الاستيراد غير صحيح');
+    }
+
+    return false;
+  }
+
   Future<void> importCsv() async {
+    final authorized = await verifyImportCode();
+
+    if (!authorized) {
+      return;
+    }
+
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv'],
