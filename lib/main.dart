@@ -867,6 +867,50 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> deleteAllVouchers() async {
+    if (vouchers.isEmpty) {
+      showMessage('لا توجد كروت لحذفها');
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('حذف جميع الكروت؟'),
+          content: Text(
+            'سيتم حذف جميع الكروت الموجودة وعددها ${vouchers.length} كرت.\n\n'
+            'يشمل ذلك الكروت المتاحة والمباعة وبيانات المبيعات.\n'
+            'لا يمكن التراجع عن هذه العملية.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('حذف الكل'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      vouchers.clear();
+      filter = VoucherFilter.all;
+      selectedProfile = 'الكل';
+      searchController.clear();
+    });
+
+    await saveVouchers();
+
+    showMessage('تم حذف جميع الكروت بنجاح');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -890,6 +934,13 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: showExportMenu,
               icon: const Icon(
                 Icons.ios_share,
+              ),
+            ),
+            IconButton(
+              tooltip: 'حذف الكل',
+              onPressed: vouchers.isEmpty ? null : deleteAllVouchers,
+              icon: const Icon(
+                Icons.delete_sweep,
               ),
             ),
           ],
