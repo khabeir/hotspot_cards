@@ -29,6 +29,9 @@ jobs:
             --project-name hotspot_cards \
             .
 
+      - name: Remove default Flutter test
+        run: rm -f test/widget_test.dart
+
       - name: Get dependencies
         run: flutter pub get
 
