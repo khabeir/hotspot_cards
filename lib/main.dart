@@ -20,7 +20,7 @@ class HotspotCardsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'إدارة كروت الإنترنت',
+      title: 'بائع الكروت',
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: Colors.deepPurple,
@@ -1005,7 +1005,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text(
-            'إدارة كروت الإنترنت',
+            'بائع الكروت',
           ),
           centerTitle: true,
           actions: [

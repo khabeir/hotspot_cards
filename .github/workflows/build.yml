@@ -29,6 +29,16 @@ jobs:
             --project-name hotspot_cards \
             .
 
+      - name: Set Android app name
+        run: |
+          mkdir -p android/app/src/main/res/values
+          cat > android/app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">بائع الكروت</string>
+          </resources>
+          EOF
+          sed -i 's/android:label="[^"]*"/android:label="@string\/app_name"/' android/app/src/main/AndroidManifest.xml
+
       - name: Remove default Flutter test
         run: rm -f test/widget_test.dart
 
