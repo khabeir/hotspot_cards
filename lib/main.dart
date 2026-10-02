@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const HotspotCardsApp());
@@ -35,6 +37,7 @@ class Voucher {
   final String timeLimit;
   final String dataLimit;
   final String comment;
+
   bool sold;
   String buyerName;
   String soldTime;
@@ -69,17 +72,22 @@ class Voucher {
 
   factory Voucher.fromJson(Map<String, dynamic> json) {
     return Voucher(
-      id: json['id'] ?? 0,
-      username: json['username'] ?? '',
-      password: json['password'] ?? '',
-      profile: json['profile'] ?? '',
-      timeLimit: json['timeLimit'] ?? '',
-      dataLimit: json['dataLimit'] ?? '',
-      comment: json['comment'] ?? '',
-      sold: json['sold'] ?? false,
-      buyerName: json['buyerName'] ?? '',
-      soldTime: json['soldTime'] ?? '',
+      id: _toInt(json['id']),
+      username: '${json['username'] ?? ''}',
+      password: '${json['password'] ?? ''}',
+      profile: '${json['profile'] ?? ''}',
+      timeLimit: '${json['timeLimit'] ?? ''}',
+      dataLimit: '${json['dataLimit'] ?? ''}',
+      comment: '${json['comment'] ?? ''}',
+      sold: json['sold'] == true,
+      buyerName: '${json['buyerName'] ?? ''}',
+      soldTime: '${json['soldTime'] ?? ''}',
     );
+  }
+
+  static int _toInt(dynamic value) {
+    if (value is int) return value;
+    return int.tryParse('$value') ?? 0;
   }
 }
 
@@ -102,12 +110,15 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Voucher> vouchers = [];
   VoucherFilter filter = VoucherFilter.all;
 
-  final TextEditingController searchController = TextEditingController();
+  final TextEditingController searchController =
+      TextEditingController();
 
   @override
   void initState() {
     super.initState();
+
     loadVouchers();
+
     searchController.addListener(() {
       setState(() {});
     });
@@ -147,7 +158,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> saveVouchers() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final data = vouchers.map((voucher) => voucher.toJson()).toList();
+    final data =
+        vouchers.map((voucher) => voucher.toJson()).toList();
 
     await prefs.setString(
       storageKey,
@@ -166,12 +178,20 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    await importCsvBytes(
+      result.files.single.bytes!,
+    );
+  }
+
+  Future<void> importCsvBytes(List<int> bytes) async {
     try {
-      final bytes = result.files.single.bytes!;
-      final content = utf8.decode(
+      var content = utf8.decode(
         bytes,
         allowMalformed: true,
       );
+
+      // إزالة BOM إن وجد.
+      content = content.replaceFirst('\uFEFF', '');
 
       final rows = const CsvToListConverter(
         shouldParseNumbers: false,
@@ -185,14 +205,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
       final headers = rows.first
           .map(
-            (e) => e.toString().trim().toLowerCase(),
+            (e) => e
+                .toString()
+                .trim()
+                .toLowerCase(),
           )
           .toList();
 
       int indexOf(String name) {
-        return headers.indexOf(name.toLowerCase());
+        return headers.indexOf(
+          name.toLowerCase(),
+        );
       }
 
+      final idIndex = indexOf('id');
       final usernameIndex = indexOf('username');
       final passwordIndex = indexOf('password');
       final profileIndex = indexOf('profile');
@@ -200,7 +226,12 @@ class _HomeScreenState extends State<HomeScreen> {
       final dataIndex = indexOf('data limit');
       final commentIndex = indexOf('comment');
 
-      if (usernameIndex == -1 || profileIndex == -1) {
+      final soldIndex = indexOf('sold');
+      final buyerNameIndex = indexOf('buyer name');
+      final soldTimeIndex = indexOf('sold time');
+
+      if (usernameIndex == -1 ||
+          profileIndex == -1) {
         showMessage(
           'ملف غير متوافق. يجب أن يحتوي على Username و Profile',
         );
@@ -216,6 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (index < 0 || index >= row.length) {
             return '';
           }
+
           return row[index].toString().trim();
         }
 
@@ -225,21 +257,40 @@ class _HomeScreenState extends State<HomeScreen> {
           continue;
         }
 
+        final soldText =
+            value(soldIndex).toLowerCase();
+
+        final isSold =
+            soldText == 'yes' ||
+            soldText == 'true' ||
+            soldText == '1' ||
+            soldText == 'نعم' ||
+            soldText == 'مباع';
+
+        final importedId =
+            int.tryParse(value(idIndex));
+
         imported.add(
           Voucher(
-            id: imported.length + 1,
+            id: importedId ??
+                imported.length + 1,
             username: username,
             password: value(passwordIndex),
             profile: value(profileIndex),
             timeLimit: value(timeIndex),
             dataLimit: value(dataIndex),
             comment: value(commentIndex),
+            sold: isSold,
+            buyerName: value(buyerNameIndex),
+            soldTime: value(soldTimeIndex),
           ),
         );
       }
 
       if (imported.isEmpty) {
-        showMessage('لم يتم العثور على كروت داخل الملف');
+        showMessage(
+          'لم يتم العثور على كروت داخل الملف',
+        );
         return;
       }
 
@@ -256,7 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } catch (e) {
       showMessage(
-        'حدث خطأ أثناء قراءة الملف',
+        'حدث خطأ أثناء قراءة ملف CSV',
       );
     }
   }
@@ -275,7 +326,8 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('بيع الكرت'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
             children: [
               Text(
                 'رقم الكرت: ${voucher.username}',
@@ -331,7 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
     voucher.sold = true;
     voucher.buyerName =
         buyerName.isEmpty ? '—' : buyerName;
-    voucher.soldTime = formatDateTime(DateTime.now());
+    voucher.soldTime =
+        formatDateTime(DateTime.now());
 
     setState(() {});
 
@@ -340,14 +393,6 @@ class _HomeScreenState extends State<HomeScreen> {
     showMessage(
       'تم تسجيل بيع الكرت ${voucher.username}',
     );
-  }
-
-  Future<void> shareVoucher(Voucher voucher) async {
-    final text = voucher.timeLimit.isEmpty
-        ? 'كرت الإنترنت: ${voucher.username}'
-        : 'كرت الإنترنت: ${voucher.username}\nالباقة: ${voucher.profile}\nالمدة: ${voucher.timeLimit}';
-
-    await Share.share(text);
   }
 
   Future<void> undoSale(Voucher voucher) async {
@@ -397,12 +442,18 @@ class _HomeScreenState extends State<HomeScreen> {
   String formatDateTime(DateTime dateTime) {
     final day =
         dateTime.day.toString().padLeft(2, '0');
+
     final month =
         dateTime.month.toString().padLeft(2, '0');
+
     final year =
-        (dateTime.year % 100).toString().padLeft(2, '0');
+        (dateTime.year % 100)
+            .toString()
+            .padLeft(2, '0');
+
     final hour =
         dateTime.hour.toString().padLeft(2, '0');
+
     final minute =
         dateTime.minute.toString().padLeft(2, '0');
 
@@ -440,12 +491,212 @@ class _HomeScreenState extends State<HomeScreen> {
     }).toList();
   }
 
-  int get soldCount {
-    return vouchers.where((v) => v.sold).length;
+  int get soldCount =>
+      vouchers.where((v) => v.sold).length;
+
+  int get availableCount =>
+      vouchers.where((v) => !v.sold).length;
+
+  Future<String> createCsv({
+    required bool remainingOnly,
+  }) async {
+    final list = remainingOnly
+        ? vouchers.where((v) => !v.sold).toList()
+        : vouchers;
+
+    final rows = <List<dynamic>>[];
+
+    if (remainingOnly) {
+      rows.add([
+        'Username',
+        'Password',
+        'Profile',
+        'Time Limit',
+        'Data Limit',
+        'Comment',
+      ]);
+
+      for (final voucher in list) {
+        rows.add([
+          voucher.username,
+          voucher.password,
+          voucher.profile,
+          voucher.timeLimit,
+          voucher.dataLimit,
+          voucher.comment,
+        ]);
+      }
+    } else {
+      rows.add([
+        'ID',
+        'Username',
+        'Password',
+        'Profile',
+        'Time Limit',
+        'Data Limit',
+        'Comment',
+        'Sold',
+        'Buyer Name',
+        'Sold Time',
+      ]);
+
+      for (final voucher in list) {
+        rows.add([
+          voucher.id,
+          voucher.username,
+          voucher.password,
+          voucher.profile,
+          voucher.timeLimit,
+          voucher.dataLimit,
+          voucher.comment,
+          voucher.sold ? 'YES' : 'NO',
+          voucher.buyerName,
+          voucher.soldTime,
+        ]);
+      }
+    }
+
+    return const ListToCsvConverter().convert(rows);
   }
 
-  int get availableCount {
-    return vouchers.where((v) => !v.sold).length;
+  Future<void> exportRemaining() async {
+    if (availableCount == 0) {
+      showMessage('لا توجد كروت متبقية للتصدير');
+      return;
+    }
+
+    final csv = await createCsv(
+      remainingOnly: true,
+    );
+
+    await shareCsv(
+      csv,
+      'hotspot_remaining_${fileDate()}.csv',
+      'الكروت المتبقية',
+    );
+  }
+
+  Future<void> exportAll() async {
+    if (vouchers.isEmpty) {
+      showMessage('لا توجد كروت للتصدير');
+      return;
+    }
+
+    final csv = await createCsv(
+      remainingOnly: false,
+    );
+
+    await shareCsv(
+      csv,
+      'hotspot_backup_${fileDate()}.csv',
+      'نسخة احتياطية لجميع الكروت',
+    );
+  }
+
+  Future<void> shareCsv(
+    String csv,
+    String fileName,
+    String message,
+  ) async {
+    try {
+      final directory =
+          await getTemporaryDirectory();
+
+      final file = File(
+        '${directory.path}/$fileName',
+      );
+
+      await file.writeAsString(
+        csv,
+        encoding: utf8,
+      );
+
+      await Share.shareXFiles(
+        [
+          XFile(
+            file.path,
+            mimeType: 'text/csv',
+          ),
+        ],
+        text: message,
+      );
+    } catch (e) {
+      showMessage(
+        'تعذر إنشاء ملف CSV',
+      );
+    }
+  }
+
+  String fileDate() {
+    final now = DateTime.now();
+
+    final y = now.year.toString();
+    final m =
+        now.month.toString().padLeft(2, '0');
+    final d =
+        now.day.toString().padLeft(2, '0');
+
+    return '$y-$m-$d';
+  }
+
+  Future<void> showImportOptions() async {
+    await importCsv();
+  }
+
+  void showExportMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ListTile(
+                  title: Text(
+                    'تصدير الكروت',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.inventory_2_outlined,
+                  ),
+                  title: const Text(
+                    'تصدير المتبقي فقط',
+                  ),
+                  subtitle: Text(
+                    'المتاح حالياً: $availableCount كرت',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    exportRemaining();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.backup_outlined,
+                  ),
+                  title: const Text(
+                    'تصدير جميع الكروت',
+                  ),
+                  subtitle: Text(
+                    'يشمل حالة البيع واسم المشتري ووقت البيع',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    exportAll();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void showMessage(String message) {
@@ -471,9 +722,16 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             IconButton(
               tooltip: 'استيراد CSV',
-              onPressed: importCsv,
+              onPressed: showImportOptions,
               icon: const Icon(
                 Icons.upload_file,
+              ),
+            ),
+            IconButton(
+              tooltip: 'تصدير',
+              onPressed: showExportMenu,
+              icon: const Icon(
+                Icons.ios_share,
               ),
             ),
           ],
@@ -490,10 +748,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
-        floatingActionButton: FloatingActionButton.extended(
+        floatingActionButton:
+            FloatingActionButton.extended(
           onPressed: importCsv,
-          icon: const Icon(Icons.upload_file),
-          label: const Text('استيراد CSV'),
+          icon: const Icon(
+            Icons.upload_file,
+          ),
+          label: const Text(
+            'استيراد CSV',
+          ),
         ),
       ),
     );
@@ -570,18 +833,23 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.all(12),
       child: TextField(
         controller: searchController,
-        keyboardType: TextInputType.text,
         decoration: InputDecoration(
-          hintText: 'ابحث برقم الكرت أو الاسم...',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: searchController.text.isEmpty
-              ? null
-              : IconButton(
-                  onPressed: () {
-                    searchController.clear();
-                  },
-                  icon: const Icon(Icons.clear),
-                ),
+          hintText:
+              'ابحث برقم الكرت أو الاسم...',
+          prefixIcon: const Icon(
+            Icons.search,
+          ),
+          suffixIcon:
+              searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        searchController.clear();
+                      },
+                      icon: const Icon(
+                        Icons.clear,
+                      ),
+                    ),
           border: const OutlineInputBorder(),
         ),
       ),
@@ -599,21 +867,24 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             ChoiceChip(
               label: const Text('الكل'),
-              selected: filter == VoucherFilter.all,
+              selected:
+                  filter == VoucherFilter.all,
               onSelected: (_) {
                 setState(() {
-                  filter = VoucherFilter.all;
+                  filter =
+                      VoucherFilter.all;
                 });
               },
             ),
             const SizedBox(width: 8),
             ChoiceChip(
               label: const Text('المتاح'),
-              selected:
-                  filter == VoucherFilter.available,
+              selected: filter ==
+                  VoucherFilter.available,
               onSelected: (_) {
                 setState(() {
-                  filter = VoucherFilter.available;
+                  filter =
+                      VoucherFilter.available;
                 });
               },
             ),
@@ -624,7 +895,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   filter == VoucherFilter.sold,
               onSelected: (_) {
                 setState(() {
-                  filter = VoucherFilter.sold;
+                  filter =
+                      VoucherFilter.sold;
                 });
               },
             ),
@@ -662,7 +934,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 25),
             FilledButton.icon(
               onPressed: importCsv,
-              icon: const Icon(Icons.upload_file),
+              icon: const Icon(
+                Icons.upload_file,
+              ),
               label: const Text(
                 'استيراد ملف الكروت',
               ),
@@ -680,7 +954,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Center(
         child: Text(
           'لا توجد نتائج',
-          style: TextStyle(fontSize: 18),
+          style: TextStyle(
+            fontSize: 18,
+          ),
         ),
       );
     }
@@ -731,7 +1007,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 6),
                               Text(
                                 voucher.username,
-                                style: const TextStyle(
+                                style:
+                                    const TextStyle(
                                   fontSize: 18,
                                   fontWeight:
                                       FontWeight.bold,
@@ -748,12 +1025,16 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     Row(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisSize:
+                          MainAxisSize.min,
                       children: [
                         IconButton(
-                          tooltip: 'إرسال رقم الكرت',
+                          tooltip:
+                              'إرسال رقم الكرت',
                           onPressed: () {
-                            shareVoucher(voucher);
+                            shareVoucher(
+                              voucher,
+                            );
                           },
                           icon: const Icon(
                             Icons.share,
@@ -762,15 +1043,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         if (!voucher.sold)
                           FilledButton(
                             onPressed: () {
-                              sellVoucher(voucher);
+                              sellVoucher(
+                                voucher,
+                              );
                             },
-                            child: const Text('✓ بيع'),
+                            child:
+                                const Text('✓ بيع'),
                           )
                         else
                           IconButton(
-                            tooltip: 'إلغاء البيع',
+                            tooltip:
+                                'إلغاء البيع',
                             onPressed: () {
-                              undoSale(voucher);
+                              undoSale(
+                                voucher,
+                              );
                             },
                             icon: const Icon(
                               Icons.undo,
@@ -816,5 +1103,17 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
     );
+  }
+
+  Future<void> shareVoucher(
+    Voucher voucher,
+  ) async {
+    final text = voucher.timeLimit.isEmpty
+        ? 'كرت الإنترنت: ${voucher.username}'
+        : 'كرت الإنترنت: ${voucher.username}\n'
+            'الباقة: ${voucher.profile}\n'
+            'المدة: ${voucher.timeLimit}';
+
+    await Share.share(text);
   }
 }
