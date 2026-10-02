@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const HotspotCardsApp());
@@ -930,6 +931,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> openWhatsApp() async {
+    final uri = Uri.parse(
+      'https://wa.me/249914111214',
+    );
+
+    if (!await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    )) {
+      showMessage('تعذر فتح واتساب');
+    }
+  }
+
   void showMessage(String message) {
     if (!mounted) return;
 
@@ -1028,6 +1042,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? _emptyState()
                   : _buildVoucherList(),
             ),
+            _buildAppFooter(),
           ],
         ),
         floatingActionButton:
@@ -1184,6 +1199,47 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildAppFooter() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'جميع الحقوق محفوظة © ودبرير',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 3),
+          InkWell(
+            onTap: openWhatsApp,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(
+                  Icons.chat,
+                  size: 16,
+                ),
+                SizedBox(width: 5),
+                Text(
+                  'واتساب: 0914111214',
+                  style: TextStyle(
+                    fontSize: 12,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
