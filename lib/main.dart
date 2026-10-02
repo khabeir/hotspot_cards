@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -109,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String storageKey = 'hotspot_vouchers';
 
   List<Voucher> vouchers = [];
+
   VoucherFilter filter = VoucherFilter.all;
 
   // فلتر حسب Profile
@@ -116,6 +118,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final TextEditingController searchController =
       TextEditingController();
+
+  // التحكم في ظهور الهيدر أثناء التمرير
+  bool _showHeader = true;
 
   @override
   void initState() {
@@ -173,7 +178,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<bool> verifyImportCode() async {
     final now = DateTime.now();
-    final expectedCode = now.day * 999 * now.month;
+
+    final expectedCode =
+        now.day * 999 * now.month;
 
     final controller = TextEditingController();
 
@@ -195,12 +202,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(null),
+              onPressed: () =>
+                  Navigator.of(context).pop(null),
               child: const Text('إلغاء'),
             ),
             FilledButton(
               onPressed: () {
-                Navigator.of(context).pop(controller.text.trim());
+                Navigator.of(context).pop(
+                  controller.text.trim(),
+                );
               },
               child: const Text('تحقق'),
             ),
@@ -233,7 +243,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final result = await FilePicker.platform.pickFiles(
+    final result =
+        await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['csv'],
       withData: true,
@@ -248,16 +259,16 @@ class _HomeScreenState extends State<HomeScreen> {
     int totalDuplicates = 0;
 
     for (final file in result.files) {
-      if (file.bytes == null || file.bytes!.isEmpty) {
+      if (file.bytes == null ||
+          file.bytes!.isEmpty) {
         continue;
       }
 
-      final result = await importCsvBytes(
-        file.bytes!,
-      );
+      final importResult =
+          await importCsvBytes(file.bytes!);
 
-      totalAdded += result.added;
-      totalDuplicates += result.duplicates;
+      totalAdded += importResult.added;
+      totalDuplicates += importResult.duplicates;
     }
 
     if (!mounted) {
@@ -272,7 +283,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await saveVouchers();
 
-    if (totalAdded == 0 && totalDuplicates == 0) {
+    if (totalAdded == 0 &&
+        totalDuplicates == 0) {
       showMessage(
         'لم يتم العثور على كروت جديدة في الملفات المحددة',
       );
@@ -336,16 +348,24 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final idIndex = indexOf('id');
-      final usernameIndex = indexOf('username');
-      final passwordIndex = indexOf('password');
-      final profileIndex = indexOf('profile');
-      final timeIndex = indexOf('time limit');
-      final dataIndex = indexOf('data limit');
-      final commentIndex = indexOf('comment');
+      final usernameIndex =
+          indexOf('username');
+      final passwordIndex =
+          indexOf('password');
+      final profileIndex =
+          indexOf('profile');
+      final timeIndex =
+          indexOf('time limit');
+      final dataIndex =
+          indexOf('data limit');
+      final commentIndex =
+          indexOf('comment');
 
       final soldIndex = indexOf('sold');
-      final buyerNameIndex = indexOf('buyer name');
-      final soldTimeIndex = indexOf('sold time');
+      final buyerNameIndex =
+          indexOf('buyer name');
+      final soldTimeIndex =
+          indexOf('sold time');
 
       if (usernameIndex == -1 ||
           profileIndex == -1) {
@@ -369,15 +389,15 @@ class _HomeScreenState extends State<HomeScreen> {
             .trim();
       }
 
-      // --------------------------------------------------------
       // مفاتيح الكروت الموجودة حالياً.
       //
       // Username + Profile
+      //
       // مثال:
       // 1234567 + 3H
       // 1234567 + 12H
+      //
       // يعتبران كرتين مختلفين.
-      // --------------------------------------------------------
       final existingKeys = <String>{
         for (final voucher in vouchers)
           _voucherKey(
@@ -395,16 +415,17 @@ class _HomeScreenState extends State<HomeScreen> {
       int nextId = 1;
 
       if (usedIds.isNotEmpty) {
-        nextId = usedIds.reduce(
+        nextId =
+            usedIds.reduce(
               (a, b) => a > b ? a : b,
             ) +
             1;
       }
 
-      // --------------------------------------------------------
       // معالجة كل صف من الملف.
-      // --------------------------------------------------------
-      for (int i = 1; i < rows.length; i++) {
+      for (int i = 1;
+          i < rows.length;
+          i++) {
         final row = rows[i];
 
         final username = value(
@@ -426,9 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
           profile,
         );
 
-        // ------------------------------------------------------
         // منع التكرار.
-        // ------------------------------------------------------
         if (existingKeys.contains(key)) {
           duplicateCount++;
           continue;
@@ -446,17 +465,20 @@ class _HomeScreenState extends State<HomeScreen> {
             soldText == 'نعم' ||
             soldText == 'مباع';
 
-        // ------------------------------------------------------
         // ID:
-        // إذا كان ID موجودًا وغير مستخدم نحتفظ به.
-        // إذا لم يكن صالحًا، نعطي الكرت ID جديدًا.
-        // ------------------------------------------------------
-        int id = int.tryParse(
+        // إذا كان ID موجودًا وغير مستخدم
+        // نحتفظ به.
+        //
+        // إذا لم يكن صالحًا
+        // نعطي الكرت ID جديدًا.
+        int id =
+            int.tryParse(
               value(row, idIndex),
             ) ??
             0;
 
-        if (id <= 0 || usedIds.contains(id)) {
+        if (id <= 0 ||
+            usedIds.contains(id)) {
           while (usedIds.contains(nextId)) {
             nextId++;
           }
@@ -467,14 +489,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         usedIds.add(id);
 
-        // ------------------------------------------------------
         // إضافة الكرت مباشرة إلى القائمة الحالية.
-        // لا نستخدم:
-        //
-        // vouchers = imported;
-        //
-        // لأن ذلك كان سبب اختفاء الملفات السابقة.
-        // ------------------------------------------------------
         vouchers.add(
           Voucher(
             id: id,
@@ -532,14 +547,18 @@ class _HomeScreenState extends State<HomeScreen> {
         '${profile.trim().toLowerCase()}';
   }
 
-  Future<void> sellVoucher(Voucher voucher) async {
+  Future<void> sellVoucher(
+    Voucher voucher,
+  ) async {
     if (voucher.sold) {
       return;
     }
 
-    final controller = TextEditingController();
+    final controller =
+        TextEditingController();
 
-    final buyerName = await showDialog<String>(
+    final buyerName =
+        await showDialog<String>(
       context: context,
       builder: (context) {
         return AlertDialog(
@@ -563,11 +582,15 @@ class _HomeScreenState extends State<HomeScreen> {
               TextField(
                 controller: controller,
                 autofocus: true,
-                textDirection: TextDirection.rtl,
-                decoration: const InputDecoration(
+                textDirection:
+                    TextDirection.rtl,
+                decoration:
+                    const InputDecoration(
                   labelText: 'اسم المشتري',
-                  hintText: 'مثلاً Mohammed',
-                  border: OutlineInputBorder(),
+                  hintText:
+                      'مثلاً Mohammed',
+                  border:
+                      OutlineInputBorder(),
                 ),
               ),
             ],
@@ -586,8 +609,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller.text.trim(),
                 );
               },
-              icon: const Icon(Icons.check),
-              label: const Text('تأكيد البيع'),
+              icon: const Icon(
+                Icons.check,
+              ),
+              label:
+                  const Text('تأكيد البيع'),
             ),
           ],
         );
@@ -601,8 +627,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     voucher.sold = true;
+
     voucher.buyerName =
-        buyerName.isEmpty ? '—' : buyerName;
+        buyerName.isEmpty
+            ? '—'
+            : buyerName;
+
     voucher.soldTime =
         formatDateTime(DateTime.now());
 
@@ -615,25 +645,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> undoSale(Voucher voucher) async {
-    final confirmed = await showDialog<bool>(
+  Future<void> undoSale(
+    Voucher voucher,
+  ) async {
+    final confirmed =
+        await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('إلغاء البيع'),
+          title:
+              const Text('إلغاء البيع'),
           content: Text(
-            'هل تريد إعادة الكرت ${voucher.username} إلى الكروت المتاحة؟',
+            'هل تريد إعادة الكرت '
+            '${voucher.username} '
+            'إلى الكروت المتاحة؟',
           ),
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context, false);
+                Navigator.pop(
+                  context,
+                  false,
+                );
               },
               child: const Text('لا'),
             ),
             FilledButton(
               onPressed: () {
-                Navigator.pop(context, true);
+                Navigator.pop(
+                  context,
+                  true,
+                );
               },
               child: const Text('نعم'),
             ),
@@ -659,33 +701,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  String formatDateTime(DateTime dateTime) {
-    final day =
-        dateTime.day.toString().padLeft(2, '0');
+  String formatDateTime(
+    DateTime dateTime,
+  ) {
+    final day = dateTime.day
+        .toString()
+        .padLeft(2, '0');
 
-    final month =
-        dateTime.month.toString().padLeft(2, '0');
+    final month = dateTime.month
+        .toString()
+        .padLeft(2, '0');
 
-    final year =
-        (dateTime.year % 100)
-            .toString()
-            .padLeft(2, '0');
+    final year = (dateTime.year % 100)
+        .toString()
+        .padLeft(2, '0');
 
-    final hour =
-        dateTime.hour.toString().padLeft(2, '0');
+    final hour = dateTime.hour
+        .toString()
+        .padLeft(2, '0');
 
-    final minute =
-        dateTime.minute.toString().padLeft(2, '0');
+    final minute = dateTime.minute
+        .toString()
+        .padLeft(2, '0');
 
-    return '$day-$month-$year $hour:$minute';
+    return '$day-$month-$year '
+        '$hour:$minute';
   }
 
   List<Voucher> get filteredVouchers {
-    final query =
-        searchController.text.trim().toLowerCase();
+    final query = searchController.text
+        .trim()
+        .toLowerCase();
 
     return vouchers.where((voucher) {
-      if (filter == VoucherFilter.available &&
+      if (selectedProfile != 'الكل' &&
+          voucher.profile !=
+              selectedProfile) {
+        return false;
+      }
+
+      if (filter ==
+              VoucherFilter.available &&
           voucher.sold) {
         return false;
       }
@@ -717,23 +773,34 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return vouchers
-        .where((v) => v.profile == selectedProfile)
+        .where(
+          (v) =>
+              v.profile ==
+              selectedProfile,
+        )
         .toList();
   }
 
-  int get totalCount => statsVouchers.length;
+  int get totalCount =>
+      statsVouchers.length;
 
   int get soldCount =>
-      statsVouchers.where((v) => v.sold).length;
+      statsVouchers
+          .where((v) => v.sold)
+          .length;
 
   int get availableCount =>
-      statsVouchers.where((v) => !v.sold).length;
+      statsVouchers
+          .where((v) => !v.sold)
+          .length;
 
   Future<String> createCsv({
     required bool remainingOnly,
   }) async {
     final list = remainingOnly
-        ? vouchers.where((v) => !v.sold).toList()
+        ? vouchers
+            .where((v) => !v.sold)
+            .toList()
         : vouchers;
 
     final rows = <List<dynamic>>[];
@@ -788,12 +855,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    return const ListToCsvConverter().convert(rows);
+    return const ListToCsvConverter()
+        .convert(rows);
   }
 
   Future<void> exportRemaining() async {
     if (availableCount == 0) {
-      showMessage('لا توجد كروت متبقية للتصدير');
+      showMessage(
+        'لا توجد كروت متبقية للتصدير',
+      );
       return;
     }
 
@@ -810,7 +880,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> exportAll() async {
     if (vouchers.isEmpty) {
-      showMessage('لا توجد كروت للتصدير');
+      showMessage(
+        'لا توجد كروت للتصدير',
+      );
       return;
     }
 
@@ -863,10 +935,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
 
     final y = now.year.toString();
-    final m =
-        now.month.toString().padLeft(2, '0');
-    final d =
-        now.day.toString().padLeft(2, '0');
+
+    final m = now.month
+        .toString()
+        .padLeft(2, '0');
+
+    final d = now.day
+        .toString()
+        .padLeft(2, '0');
 
     return '$y-$m-$d';
   }
@@ -881,30 +957,37 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         return SafeArea(
           child: Directionality(
-            textDirection: TextDirection.rtl,
+            textDirection:
+                TextDirection.rtl,
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisSize:
+                  MainAxisSize.min,
               children: [
                 const ListTile(
                   title: Text(
                     'تصدير الكروت',
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
+                      fontWeight:
+                          FontWeight.bold,
                     ),
                   ),
                 ),
                 ListTile(
                   leading: const Icon(
-                    Icons.inventory_2_outlined,
+                    Icons
+                        .inventory_2_outlined,
                   ),
                   title: const Text(
                     'تصدير المتبقي فقط',
                   ),
                   subtitle: Text(
-                    'المتاح حالياً: $availableCount كرت',
+                    'المتاح حالياً: '
+                    '$availableCount كرت',
                   ),
                   onTap: () {
-                    Navigator.pop(context);
+                    Navigator.pop(
+                      context,
+                    );
                     exportRemaining();
                   },
                 ),
@@ -915,11 +998,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: const Text(
                     'تصدير جميع الكروت',
                   ),
-                  subtitle: Text(
-                    'يشمل حالة البيع واسم المشتري ووقت البيع',
+                  subtitle: const Text(
+                    'يشمل حالة البيع واسم '
+                    'المشتري ووقت البيع',
                   ),
                   onTap: () {
-                    Navigator.pop(context);
+                    Navigator.pop(
+                      context,
+                    );
                     exportAll();
                   },
                 ),
@@ -938,16 +1024,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!await launchUrl(
       uri,
-      mode: LaunchMode.externalApplication,
+      mode:
+          LaunchMode.externalApplication,
     )) {
-      showMessage('تعذر فتح واتساب');
+      showMessage(
+        'تعذر فتح واتساب',
+      );
     }
   }
 
   void showMessage(String message) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)
+        .showSnackBar(
       SnackBar(
         content: Text(message),
       ),
@@ -956,35 +1046,52 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> deleteAllVouchers() async {
     if (vouchers.isEmpty) {
-      showMessage('لا توجد كروت لحذفها');
+      showMessage(
+        'لا توجد كروت لحذفها',
+      );
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    final confirmed =
+        await showDialog<bool>(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('حذف جميع الكروت؟'),
+          title: const Text(
+            'حذف جميع الكروت؟',
+          ),
           content: Text(
-            'سيتم حذف جميع الكروت الموجودة وعددها ${vouchers.length} كرت.\n\n'
-            'يشمل ذلك الكروت المتاحة والمباعة وبيانات المبيعات.\n'
+            'سيتم حذف جميع الكروت الموجودة '
+            'وعددها ${vouchers.length} كرت.\n\n'
+            'يشمل ذلك الكروت المتاحة والمباعة '
+            'وبيانات المبيعات.\n'
             'لا يمكن التراجع عن هذه العملية.',
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('إلغاء'),
+              onPressed: () =>
+                  Navigator.of(context)
+                      .pop(false),
+              child: const Text(
+                'إلغاء',
+              ),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('حذف الكل'),
+              onPressed: () =>
+                  Navigator.of(context)
+                      .pop(true),
+              child: const Text(
+                'حذف الكل',
+              ),
             ),
           ],
         );
       },
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true) {
+      return;
+    }
 
     setState(() {
       vouchers.clear();
@@ -995,7 +1102,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await saveVouchers();
 
-    showMessage('تم حذف جميع الكروت بنجاح');
+    showMessage(
+      'تم حذف جميع الكروت بنجاح',
+    );
   }
 
   @override
@@ -1003,35 +1112,49 @@ class _HomeScreenState extends State<HomeScreen> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text(
-            'بائع الكروت',
-          ),
-          centerTitle: true,
-          actions: [
-            IconButton(
-              tooltip: 'استيراد CSV',
-              onPressed: showImportOptions,
-              icon: const Icon(
-                Icons.upload_file,
-              ),
-            ),
-            IconButton(
-              tooltip: 'تصدير',
-              onPressed: showExportMenu,
-              icon: const Icon(
-                Icons.ios_share,
-              ),
-            ),
-            IconButton(
-              tooltip: 'حذف الكل',
-              onPressed: vouchers.isEmpty ? null : deleteAllVouchers,
-              icon: const Icon(
-                Icons.delete_sweep,
-              ),
-            ),
-          ],
-        ),
+        appBar: _showHeader
+            ? AppBar(
+                toolbarHeight: 48,
+                title: const Text(
+                  'بائع الكروت',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+                centerTitle: true,
+                actions: [
+                  IconButton(
+                    tooltip: 'استيراد CSV',
+                    onPressed:
+                        showImportOptions,
+                    icon: const Icon(
+                      Icons.upload_file,
+                      size: 21,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'تصدير',
+                    onPressed: showExportMenu,
+                    icon: const Icon(
+                      Icons.ios_share,
+                      size: 21,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'حذف الكل',
+                    onPressed: vouchers.isEmpty
+                        ? null
+                        : deleteAllVouchers,
+                    icon: const Icon(
+                      Icons.delete_sweep,
+                      size: 21,
+                    ),
+                  ),
+                ],
+              )
+            : null,
         body: Column(
           children: [
             _buildStats(),
@@ -1040,10 +1163,39 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: vouchers.isEmpty
                   ? _emptyState()
-                  : _buildVoucherList(),
+                  : NotificationListener<
+                      UserScrollNotification>(
+                      onNotification:
+                          (notification) {
+                        if (notification
+                                .direction ==
+                            ScrollDirection
+                                .reverse) {
+                          if (_showHeader) {
+                            setState(() {
+                              _showHeader =
+                                  false;
+                            });
+                          }
+                        } else if (notification
+                                .direction ==
+                            ScrollDirection
+                                .forward) {
+                          if (!_showHeader) {
+                            setState(() {
+                              _showHeader =
+                                  true;
+                            });
+                          }
+                        }
+
+                        return false;
+                      },
+                      child:
+                          _buildVoucherList(),
+                    ),
             ),
             _buildAppFooter(),
-            const SizedBox(height: 80),
           ],
         ),
         floatingActionButton:
@@ -1062,11 +1214,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildStats() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        12,
-        12,
-        12,
-        4,
+      padding:
+          const EdgeInsets.fromLTRB(
+        8,
+        5,
+        8,
+        2,
       ),
       child: Row(
         children: [
@@ -1097,26 +1250,39 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     return Expanded(
       child: Card(
+        margin: const EdgeInsets.symmetric(
+          horizontal: 2,
+        ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            vertical: 10,
-            horizontal: 4,
+          padding:
+              const EdgeInsets.symmetric(
+            vertical: 5,
+            horizontal: 3,
           ),
-          child: Column(
+          child: Row(
+            mainAxisAlignment:
+                MainAxisAlignment.center,
             children: [
-              Icon(icon),
-              const SizedBox(height: 4),
+              Icon(
+                icon,
+                size: 17,
+              ),
+              const SizedBox(width: 4),
               Text(
                 '$value',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+                style:
+                    const TextStyle(
+                  fontSize: 17,
+                  fontWeight:
+                      FontWeight.bold,
                 ),
               ),
+              const SizedBox(width: 3),
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 12,
+                style:
+                    const TextStyle(
+                  fontSize: 11,
                 ),
               ),
             ],
@@ -1128,27 +1294,49 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSearch() {
     return Padding(
-      padding: const EdgeInsets.all(12),
-      child: TextField(
-        controller: searchController,
-        decoration: InputDecoration(
-          hintText:
-              'ابحث برقم الكرت أو الاسم...',
-          prefixIcon: const Icon(
-            Icons.search,
-          ),
-          suffixIcon:
-              searchController.text.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        searchController.clear();
-                      },
-                      icon: const Icon(
-                        Icons.clear,
+      padding:
+          const EdgeInsets.fromLTRB(
+        8,
+        3,
+        8,
+        3,
+      ),
+      child: SizedBox(
+        height: 46,
+        child: TextField(
+          controller:
+              searchController,
+          decoration:
+              InputDecoration(
+            hintText:
+                'ابحث برقم الكرت أو الاسم...',
+            prefixIcon: const Icon(
+              Icons.search,
+              size: 21,
+            ),
+            suffixIcon:
+                searchController
+                        .text
+                        .isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () {
+                          searchController
+                              .clear();
+                        },
+                        icon: const Icon(
+                          Icons.clear,
+                          size: 20,
+                        ),
                       ),
-                    ),
-          border: const OutlineInputBorder(),
+            border:
+                const OutlineInputBorder(),
+            contentPadding:
+                const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 8,
+            ),
+          ),
         ),
       ),
     );
@@ -1156,17 +1344,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFilters() {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 8,
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child:
+          SingleChildScrollView(
+        scrollDirection:
+            Axis.horizontal,
         child: Row(
           children: [
             ChoiceChip(
-              label: const Text('الكل'),
+              label:
+                  const Text('الكل'),
               selected:
-                  filter == VoucherFilter.all,
+                  filter ==
+                      VoucherFilter.all,
               onSelected: (_) {
                 setState(() {
                   filter =
@@ -1174,23 +1367,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 5),
             ChoiceChip(
-              label: const Text('المتاح'),
-              selected: filter ==
-                  VoucherFilter.available,
+              label:
+                  const Text('المتاح'),
+              selected:
+                  filter ==
+                      VoucherFilter
+                          .available,
               onSelected: (_) {
                 setState(() {
                   filter =
-                      VoucherFilter.available;
+                      VoucherFilter
+                          .available;
                 });
               },
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 5),
             ChoiceChip(
-              label: const Text('المباع'),
+              label:
+                  const Text('المباع'),
               selected:
-                  filter == VoucherFilter.sold,
+                  filter ==
+                      VoucherFilter.sold,
               onSelected: (_) {
                 setState(() {
                   filter =
@@ -1206,35 +1405,51 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildAppFooter() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: Column(
+      padding:
+          const EdgeInsets.fromLTRB(
+        8,
+        2,
+        8,
+        5,
+      ),
+      child: Row(
+        mainAxisAlignment:
+            MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'جميع الحقوق محفوظة © ودبرير',
-            textAlign: TextAlign.center,
+            '© ودبرير',
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontSize: 11,
+              fontWeight:
+                  FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(width: 10),
+          Container(
+            width: 1,
+            height: 14,
+            color: Colors.grey,
+          ),
+          const SizedBox(width: 10),
           InkWell(
             onTap: openWhatsApp,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: const [
+            child: const Row(
+              mainAxisSize:
+                  MainAxisSize.min,
+              children: [
                 Icon(
                   Icons.chat,
-                  size: 16,
+                  size: 14,
                 ),
-                SizedBox(width: 5),
+                SizedBox(width: 4),
                 Text(
                   'واتساب: 0914111214',
                   style: TextStyle(
-                    fontSize: 12,
-                    decoration: TextDecoration.underline,
+                    fontSize: 11,
+                    decoration:
+                        TextDecoration
+                            .underline,
                   ),
                 ),
               ],
@@ -1248,29 +1463,34 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _emptyState() {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding:
+            const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment:
               MainAxisAlignment.center,
           children: [
             const Icon(
-              Icons.confirmation_number_outlined,
-              size: 80,
+              Icons
+                  .confirmation_number_outlined,
+              size: 70,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 15),
             const Text(
               'لا توجد كروت',
               style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
+                fontSize: 22,
+                fontWeight:
+                    FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             const Text(
-              'استورد ملف CSV الذي تم تصديره من Mikhmon',
-              textAlign: TextAlign.center,
+              'استورد ملف CSV الذي تم '
+              'تصديره من Mikhmon',
+              textAlign:
+                  TextAlign.center,
             ),
-            const SizedBox(height: 25),
+            const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: importCsv,
               icon: const Icon(
@@ -1301,67 +1521,109 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(
-        8,
-        8,
-        8,
-        90,
+      padding:
+          const EdgeInsets.fromLTRB(
+        6,
+        4,
+        6,
+        75,
       ),
       itemCount: list.length,
       itemBuilder: (context, index) {
         final voucher = list[index];
 
         return Card(
-          margin: const EdgeInsets.symmetric(
-            vertical: 4,
+          margin:
+              const EdgeInsets.symmetric(
+            vertical: 2,
           ),
           child: Padding(
-            padding: const EdgeInsets.all(10),
+            padding:
+                const EdgeInsets.symmetric(
+              horizontal: 7,
+              vertical: 5,
+            ),
             child: Column(
               children: [
                 Row(
                   children: [
                     CircleAvatar(
+                      radius: 18,
                       child: Text(
                         '${voucher.id}',
+                        style:
+                            const TextStyle(
+                          fontSize: 12,
+                          fontWeight:
+                              FontWeight.bold,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(
+                      width: 7,
+                    ),
                     Expanded(
                       child: Column(
                         crossAxisAlignment:
-                            CrossAxisAlignment.start,
+                            CrossAxisAlignment
+                                .start,
                         children: [
                           Row(
                             children: [
                               Icon(
                                 voucher.sold
-                                    ? Icons.check_circle
-                                    : Icons.cancel,
-                                size: 20,
-                                color: voucher.sold
-                                    ? Colors.green
-                                    : Colors.red,
+                                    ? Icons
+                                        .check_circle
+                                    : Icons
+                                        .cancel,
+                                size: 18,
+                                color: voucher
+                                        .sold
+                                    ? Colors
+                                        .green
+                                    : Colors
+                                        .red,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                voucher.username,
-                                style:
-                                    const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight:
-                                      FontWeight.bold,
+                              const SizedBox(
+                                width: 5,
+                              ),
+                              Flexible(
+                                child: Text(
+                                  voucher
+                                      .username,
+                                  overflow:
+                                      TextOverflow
+                                          .ellipsis,
+                                  style:
+                                      const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight:
+                                        FontWeight
+                                            .bold,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(
+                            height: 2,
+                          ),
                           Text(
                             'Profile: ${voucher.profile}'
                             '${voucher.timeLimit.isEmpty ? '' : ' • ${voucher.timeLimit}'}',
+                            style:
+                                const TextStyle(
+                              fontSize: 12,
+                            ),
+                            overflow:
+                                TextOverflow
+                                    .ellipsis,
                           ),
                         ],
                       ),
+                    ),
+                    const SizedBox(
+                      width: 3,
                     ),
                     Row(
                       mainAxisSize:
@@ -1370,6 +1632,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         IconButton(
                           tooltip:
                               'إرسال رقم الكرت',
+                          visualDensity:
+                              VisualDensity
+                                  .compact,
+                          padding:
+                              const EdgeInsets
+                                  .all(4),
+                          constraints:
+                              const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
                           onPressed: () {
                             shareVoucher(
                               voucher,
@@ -1377,22 +1650,57 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                           icon: const Icon(
                             Icons.share,
+                            size: 20,
                           ),
                         ),
                         if (!voucher.sold)
                           FilledButton(
+                            style:
+                                FilledButton
+                                    .styleFrom(
+                              minimumSize:
+                                  const Size(
+                                48,
+                                34,
+                              ),
+                              padding:
+                                  const EdgeInsets
+                                      .symmetric(
+                                horizontal: 8,
+                              ),
+                              visualDensity:
+                                  VisualDensity
+                                      .compact,
+                            ),
                             onPressed: () {
                               sellVoucher(
                                 voucher,
                               );
                             },
                             child:
-                                const Text('✓ بيع'),
+                                const Text(
+                              '✓ بيع',
+                              style:
+                                  TextStyle(
+                                fontSize: 12,
+                              ),
+                            ),
                           )
                         else
                           IconButton(
                             tooltip:
                                 'إلغاء البيع',
+                            visualDensity:
+                                VisualDensity
+                                    .compact,
+                            padding:
+                                const EdgeInsets
+                                    .all(4),
+                            constraints:
+                                const BoxConstraints(
+                              minWidth: 34,
+                              minHeight: 34,
+                            ),
                             onPressed: () {
                               undoSale(
                                 voucher,
@@ -1400,6 +1708,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             },
                             icon: const Icon(
                               Icons.undo,
+                              size: 20,
                             ),
                           ),
                       ],
@@ -1407,31 +1716,51 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 if (voucher.sold) ...[
-                  const Divider(),
+                  const Divider(
+                    height: 8,
+                  ),
                   Row(
                     children: [
                       const Icon(
-                        Icons.person_outline,
-                        size: 19,
+                        Icons
+                            .person_outline,
+                        size: 17,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(
+                        width: 5,
+                      ),
                       Expanded(
                         child: Text(
                           'المشتري: ${voucher.buyerName}',
+                          style:
+                              const TextStyle(
+                            fontSize: 12,
+                          ),
+                          overflow:
+                              TextOverflow
+                                  .ellipsis,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(
+                    height: 3,
+                  ),
                   Row(
                     children: [
                       const Icon(
                         Icons.access_time,
-                        size: 19,
+                        size: 17,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(
+                        width: 5,
+                      ),
                       Text(
                         'وقت البيع: ${voucher.soldTime}',
+                        style:
+                            const TextStyle(
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
