@@ -113,13 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   VoucherFilter filter = VoucherFilter.all;
 
-  // فلتر حسب Profile
   String selectedProfile = 'الكل';
 
   final TextEditingController searchController =
       TextEditingController();
 
-  // التحكم في ظهور الهيدر أثناء التمرير
   bool _showHeader = true;
 
   @override
@@ -138,6 +136,68 @@ class _HomeScreenState extends State<HomeScreen> {
     searchController.dispose();
     super.dispose();
   }
+
+  // ============================================================
+  // ألوان Profiles
+  // ============================================================
+
+  static const List<Color> _profileColors = [
+    Color(0xFFE3F2FD),
+    Color(0xFFE8F5E9),
+    Color(0xFFFFF3E0),
+    Color(0xFFF3E5F5),
+    Color(0xFFFFEBEE),
+    Color(0xFFE0F7FA),
+    Color(0xFFFFFDE7),
+    Color(0xFFEDE7F6),
+    Color(0xFFFCE4EC),
+    Color(0xFFE0F2F1),
+    Color(0xFFF1F8E9),
+    Color(0xFFFFF8E1),
+  ];
+
+  static const List<Color> _profileAccentColors = [
+    Color(0xFF1976D2),
+    Color(0xFF388E3C),
+    Color(0xFFF57C00),
+    Color(0xFF7B1FA2),
+    Color(0xFFD32F2F),
+    Color(0xFF00838F),
+    Color(0xFFF9A825),
+    Color(0xFF512DA8),
+    Color(0xFFC2185B),
+    Color(0xFF00796B),
+    Color(0xFF689F38),
+    Color(0xFFFF8F00),
+  ];
+
+  int _profileColorIndex(String profile) {
+    final normalized = profile.trim().toLowerCase();
+
+    if (normalized.isEmpty) {
+      return 0;
+    }
+
+    int hash = 0;
+
+    for (final codeUnit in normalized.codeUnits) {
+      hash = (hash * 31 + codeUnit) & 0x7fffffff;
+    }
+
+    return hash % _profileColors.length;
+  }
+
+  Color _profileBackgroundColor(String profile) {
+    return _profileColors[_profileColorIndex(profile)];
+  }
+
+  Color _profileAccentColor(String profile) {
+    return _profileAccentColors[_profileColorIndex(profile)];
+  }
+
+  // ============================================================
+  // تحميل وحفظ
+  // ============================================================
 
   Future<void> loadVouchers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -175,6 +235,10 @@ class _HomeScreenState extends State<HomeScreen> {
       jsonEncode(data),
     );
   }
+
+  // ============================================================
+  // رمز الاستيراد
+  // ============================================================
 
   Future<bool> verifyImportCode() async {
     final now = DateTime.now();
@@ -235,6 +299,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return false;
   }
+
+  // ============================================================
+  // استيراد CSV
+  // ============================================================
 
   Future<void> importCsv() async {
     final authorized = await verifyImportCode();
@@ -314,7 +382,6 @@ class _HomeScreenState extends State<HomeScreen> {
         allowMalformed: true,
       );
 
-      // إزالة BOM إن وجد.
       content = content.replaceFirst(
         '\uFEFF',
         '',
@@ -389,15 +456,6 @@ class _HomeScreenState extends State<HomeScreen> {
             .trim();
       }
 
-      // مفاتيح الكروت الموجودة حالياً.
-      //
-      // Username + Profile
-      //
-      // مثال:
-      // 1234567 + 3H
-      // 1234567 + 12H
-      //
-      // يعتبران كرتين مختلفين.
       final existingKeys = <String>{
         for (final voucher in vouchers)
           _voucherKey(
@@ -406,7 +464,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
       };
 
-      // IDs الموجودة بالفعل.
       final usedIds = <int>{
         for (final voucher in vouchers)
           voucher.id,
@@ -422,7 +479,6 @@ class _HomeScreenState extends State<HomeScreen> {
             1;
       }
 
-      // معالجة كل صف من الملف.
       for (int i = 1;
           i < rows.length;
           i++) {
@@ -447,7 +503,6 @@ class _HomeScreenState extends State<HomeScreen> {
           profile,
         );
 
-        // منع التكرار.
         if (existingKeys.contains(key)) {
           duplicateCount++;
           continue;
@@ -465,12 +520,6 @@ class _HomeScreenState extends State<HomeScreen> {
             soldText == 'نعم' ||
             soldText == 'مباع';
 
-        // ID:
-        // إذا كان ID موجودًا وغير مستخدم
-        // نحتفظ به.
-        //
-        // إذا لم يكن صالحًا
-        // نعطي الكرت ID جديدًا.
         int id =
             int.tryParse(
               value(row, idIndex),
@@ -489,7 +538,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
         usedIds.add(id);
 
-        // إضافة الكرت مباشرة إلى القائمة الحالية.
         vouchers.add(
           Voucher(
             id: id,
@@ -546,6 +594,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${username.trim().toLowerCase()}|'
         '${profile.trim().toLowerCase()}';
   }
+
+  // ============================================================
+  // البيع
+  // ============================================================
 
   Future<void> sellVoucher(
     Voucher voucher,
@@ -728,6 +780,10 @@ class _HomeScreenState extends State<HomeScreen> {
         '$hour:$minute';
   }
 
+  // ============================================================
+  // الفلاتر
+  // ============================================================
+
   List<Voucher> get filteredVouchers {
     final query = searchController.text
         .trim()
@@ -793,6 +849,10 @@ class _HomeScreenState extends State<HomeScreen> {
       statsVouchers
           .where((v) => !v.sold)
           .length;
+
+  // ============================================================
+  // CSV
+  // ============================================================
 
   Future<String> createCsv({
     required bool remainingOnly,
@@ -1107,6 +1167,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // الواجهة الرئيسية
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -1195,9 +1259,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildVoucherList(),
                     ),
             ),
-            _buildAppFooter(),
+
+            // ==================================================
+            // الحقوق + واتساب في الجهة المقابلة لزر الاستيراد
+            // ==================================================
+            _buildBottomBar(),
           ],
         ),
+
+        // زر الاستيراد يبقى في الأسفل.
         floatingActionButton:
             FloatingActionButton.extended(
           onPressed: importCsv,
@@ -1208,9 +1278,76 @@ class _HomeScreenState extends State<HomeScreen> {
             'استيراد CSV',
           ),
         ),
+        floatingActionButtonLocation:
+            FloatingActionButtonLocation
+                .startFloat,
       ),
     );
   }
+
+  // ============================================================
+  // الشريط السفلي
+  // ============================================================
+
+  Widget _buildBottomBar() {
+    return Padding(
+      padding:
+          const EdgeInsets.fromLTRB(
+        8,
+        2,
+        8,
+        5,
+      ),
+      child: Row(
+        mainAxisAlignment:
+            MainAxisAlignment.end,
+        children: [
+          InkWell(
+            onTap: openWhatsApp,
+            child: const Row(
+              mainAxisSize:
+                  MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.chat,
+                  size: 15,
+                ),
+                SizedBox(width: 4),
+                Text(
+                  'واتساب: 0914111214',
+                  style: TextStyle(
+                    fontSize: 11,
+                    decoration:
+                        TextDecoration
+                            .underline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            width: 1,
+            height: 14,
+            color: Colors.grey,
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            '© ودبرير',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight:
+                  FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // الإحصائيات
+  // ============================================================
 
   Widget _buildStats() {
     return Padding(
@@ -1292,6 +1429,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // البحث
+  // ============================================================
+
   Widget _buildSearch() {
     return Padding(
       padding:
@@ -1341,6 +1482,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // الفلاتر
+  // ============================================================
 
   Widget _buildFilters() {
     return Padding(
@@ -1403,62 +1548,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildAppFooter() {
-    return Padding(
-      padding:
-          const EdgeInsets.fromLTRB(
-        8,
-        2,
-        8,
-        5,
-      ),
-      child: Row(
-        mainAxisAlignment:
-            MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            '© ودبرير',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight:
-                  FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Container(
-            width: 1,
-            height: 14,
-            color: Colors.grey,
-          ),
-          const SizedBox(width: 10),
-          InkWell(
-            onTap: openWhatsApp,
-            child: const Row(
-              mainAxisSize:
-                  MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.chat,
-                  size: 14,
-                ),
-                SizedBox(width: 4),
-                Text(
-                  'واتساب: 0914111214',
-                  style: TextStyle(
-                    fontSize: 11,
-                    decoration:
-                        TextDecoration
-                            .underline,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ============================================================
+  // الحالة الفارغة
+  // ============================================================
 
   Widget _emptyState() {
     return Center(
@@ -1506,6 +1598,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // ============================================================
+  // قائمة الكروت
+  // ============================================================
+
   Widget _buildVoucherList() {
     final list = filteredVouchers;
 
@@ -1532,10 +1628,31 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (context, index) {
         final voucher = list[index];
 
+        final profileBackground =
+            _profileBackgroundColor(
+          voucher.profile,
+        );
+
+        final profileAccent =
+            _profileAccentColor(
+          voucher.profile,
+        );
+
         return Card(
+          color: profileBackground,
           margin:
               const EdgeInsets.symmetric(
             vertical: 2,
+          ),
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(10),
+            side: BorderSide(
+              color: profileAccent
+                  .withOpacity(0.28),
+              width: 1,
+            ),
           ),
           child: Padding(
             padding:
@@ -1549,6 +1666,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     CircleAvatar(
                       radius: 18,
+                      backgroundColor:
+                          profileAccent,
+                      foregroundColor:
+                          Colors.white,
                       child: Text(
                         '${voucher.id}',
                         style:
@@ -1608,16 +1729,44 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(
                             height: 2,
                           ),
-                          Text(
-                            'Profile: ${voucher.profile}'
-                            '${voucher.timeLimit.isEmpty ? '' : ' • ${voucher.timeLimit}'}',
-                            style:
-                                const TextStyle(
-                              fontSize: 12,
+
+                          // اسم Profile بلون خاص به
+                          Container(
+                            padding:
+                                const EdgeInsets
+                                    .symmetric(
+                              horizontal: 6,
+                              vertical: 2,
                             ),
-                            overflow:
-                                TextOverflow
-                                    .ellipsis,
+                            decoration:
+                                BoxDecoration(
+                              color:
+                                  profileAccent
+                                      .withOpacity(
+                                0.12,
+                              ),
+                              borderRadius:
+                                  BorderRadius
+                                      .circular(
+                                5,
+                              ),
+                            ),
+                            child: Text(
+                              'Profile: ${voucher.profile}'
+                              '${voucher.timeLimit.isEmpty ? '' : ' • ${voucher.timeLimit}'}',
+                              style:
+                                  TextStyle(
+                                fontSize: 12,
+                                fontWeight:
+                                    FontWeight
+                                        .w600,
+                                color:
+                                    profileAccent,
+                              ),
+                              overflow:
+                                  TextOverflow
+                                      .ellipsis,
+                            ),
                           ),
                         ],
                       ),
@@ -1715,6 +1864,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
+
+                // بيانات البيع
                 if (voucher.sold) ...[
                   const Divider(
                     height: 8,
@@ -1772,6 +1923,10 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
+
+  // ============================================================
+  // مشاركة الكرت
+  // ============================================================
 
   Future<void> shareVoucher(
     Voucher voucher,
