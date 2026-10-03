@@ -1,0 +1,4 @@
+
+# Release signing files
+android/keystore/
+key.properties
