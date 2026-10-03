@@ -1742,8 +1742,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 BoxDecoration(
                               color:
                                   profileAccent
-                                      .withOpacity(
-                                0.12,
+                                      .withValues(
+                                alpha: 0.12,
                               ),
                               borderRadius:
                                   BorderRadius
