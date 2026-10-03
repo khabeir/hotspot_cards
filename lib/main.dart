@@ -1650,7 +1650,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 BorderRadius.circular(10),
             side: BorderSide(
               color: profileAccent
-                  .withOpacity(0.28),
+                  .withValues(alpha: 0.28),
               width: 1,
             ),
           ),
