@@ -32,12 +32,42 @@ jobs:
       - name: Set Android app name
         run: |
           mkdir -p android/app/src/main/res/values
+
           cat > android/app/src/main/res/values/strings.xml <<'EOF'
           <resources>
               <string name="app_name">بائع الكروت</string>
           </resources>
           EOF
-          sed -i 's/android:label="[^"]*"/android:label="@string\/app_name"/' android/app/src/main/AndroidManifest.xml
+
+          sed -i 's/android:label="[^"]*"/android:label="@string\/app_name"/' \
+            android/app/src/main/AndroidManifest.xml
+
+      - name: Install app icon
+        run: |
+          mkdir -p \
+            android/app/src/main/res/mipmap-mdpi \
+            android/app/src/main/res/mipmap-hdpi \
+            android/app/src/main/res/mipmap-xhdpi \
+            android/app/src/main/res/mipmap-xxhdpi \
+            android/app/src/main/res/mipmap-xxxhdpi
+
+          cp assets/app_icon/ic_launcher.png \
+            android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+
+          cp assets/app_icon/ic_launcher.png \
+            android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+
+          cp assets/app_icon/ic_launcher.png \
+            android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+
+          cp assets/app_icon/ic_launcher.png \
+            android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+
+          cp assets/app_icon/ic_launcher.png \
+            android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+
+          sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@mipmap/ic_launcher"#' \
+            android/app/src/main/AndroidManifest.xml
 
       - name: Remove default Flutter test
         run: rm -f test/widget_test.dart
@@ -51,8 +81,17 @@ jobs:
       - name: Build APK
         run: flutter build apk --release
 
+      - name: Build AAB
+        run: flutter build appbundle --release
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: hotspot-cards-release
+          name: hotspot-cards-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotspot-cards-release-aab
+          path: build/app/outputs/bundle/release/app-release.aab
