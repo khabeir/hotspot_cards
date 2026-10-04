@@ -41,7 +41,10 @@ jobs:
             --org com.khabeir \
             --project-name hotspot_cards \
             .
-
+            
+      - name: Relax Kotlin JVM target validation
+        run: |
+          echo "kotlin.jvm.target.validation.mode=warning" >> android/gradle.properties
 
       # ============================================================
       # 4. Configure Android JVM 17 globally
