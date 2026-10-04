@@ -44,10 +44,14 @@ jobs:
 
 
       # ============================================================
-      # 4. Configure Android Java/Kotlin JVM 17 globally
+      # 4. Configure Android JVM 17 globally
       #
-      # توحيد Java و Kotlin على JVM 17 في التطبيق
-      # وجميع الحزم الخارجية مثل:
+      # مهم:
+      # لا نستخدم afterEvaluate هنا.
+      #
+      # هذا الإعداد يفرض Java 17 وKotlin 17 على جميع
+      # Android subprojects، بما فيها:
+      #
       # file_picker
       # receive_sharing_intent
       # share_plus
@@ -55,69 +59,13 @@ jobs:
       # ============================================================
       - name: Configure Android JVM 17
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root_gradle = Path("android/build.gradle.kts")
-
-          text = root_gradle.read_text(encoding="utf-8")
-
-          # إزالة أي إعداد سابق أضفناه لهذا الغرض.
-          marker = "// =========================================================="
-          start_marker = "// Global Java / Kotlin JVM target"
-
-          if start_marker in text:
-              start = text.find(start_marker)
-
-              # ابحث عن نهاية block الخاص بـ subprojects.
-              block_start = text.rfind(
-                  "// ==========================================================",
-                  0,
-                  start
-              )
-
-              if block_start >= 0:
-                  text = text[:block_start].rstrip() + "\n"
-
-          global_config = r'''
+          cat >> android/build.gradle.kts <<'EOF'
 
           // ==========================================================
           // Global Java / Kotlin JVM 17
           // ==========================================================
 
           subprojects {
-              afterEvaluate {
-                  extensions.findByName("android")?.let { androidExtension ->
-                      androidExtension.javaClass
-                          .methods
-                          .firstOrNull {
-                              it.name == "getCompileOptions"
-                          }
-                          ?.invoke(androidExtension)
-                          ?.let { compileOptions ->
-                              compileOptions.javaClass
-                                  .methods
-                                  .firstOrNull {
-                                      it.name == "setSourceCompatibility"
-                                  }
-                                  ?.invoke(
-                                      compileOptions,
-                                      JavaVersion.VERSION_17
-                                  )
-
-                              compileOptions.javaClass
-                                  .methods
-                                  .firstOrNull {
-                                      it.name == "setTargetCompatibility"
-                                  }
-                                  ?.invoke(
-                                      compileOptions,
-                                      JavaVersion.VERSION_17
-                                  )
-                          }
-                  }
-              }
-
               tasks.withType<JavaCompile>().configureEach {
                   sourceCompatibility = "17"
                   targetCompatibility = "17"
@@ -133,26 +81,9 @@ jobs:
                   }
               }
           }
-          '''
+          EOF
 
-          text = text.rstrip() + global_config + "\n"
-
-          root_gradle.write_text(
-              text,
-              encoding="utf-8"
-          )
-
-          print(
-              "Global Java/Kotlin JVM 17 configuration added."
-          )
-          PY
-
-          echo
-          echo "========================================"
-          echo "ANDROID ROOT BUILD.GRADLE.KTS"
-          echo "========================================"
-
-          cat android/build.gradle.kts
+          echo "Global Java/Kotlin JVM 17 configured."
 
 
       # ============================================================
@@ -175,7 +106,9 @@ jobs:
               "android/app/src/main/AndroidManifest.xml"
           )
 
-          text = manifest.read_text(encoding="utf-8")
+          text = manifest.read_text(
+              encoding="utf-8"
+          )
 
           text = text.replace(
               'android:label="${applicationName}"',
@@ -262,7 +195,7 @@ jobs:
               encoding="utf-8"
           )
 
-          # Remove any existing android:icon.
+          # Remove existing android:icon attributes.
           text = re.sub(
               r'\s+android:icon="[^"]*"',
               '',
@@ -389,7 +322,7 @@ jobs:
           activity_close = match.group(3)
 
           # ----------------------------------------------------------
-          # Remove previously generated CSV intent filters.
+          # Remove old CSV VIEW filters.
           # ----------------------------------------------------------
 
           activity_body = re.sub(
@@ -403,6 +336,10 @@ jobs:
               flags=re.DOTALL
           )
 
+          # ----------------------------------------------------------
+          # Remove old CSV SEND filters.
+          # ----------------------------------------------------------
+
           activity_body = re.sub(
               r'\s*<intent-filter>\s*'
               r'<action android:name="android\.intent\.action\.SEND"\s*/>\s*'
@@ -415,7 +352,7 @@ jobs:
           )
 
           # ----------------------------------------------------------
-          # Add CSV VIEW filters.
+          # CSV intent filters.
           # ----------------------------------------------------------
 
           filters = r'''
@@ -563,7 +500,9 @@ jobs:
 
 
       # ============================================================
-      # 16. Configure release signing + JVM 17
+      # 16. Configure release signing
+      #
+      # Flutter 3.35 generates Kotlin DSL.
       # ============================================================
       - name: Configure release signing
         run: |
@@ -593,9 +532,11 @@ jobs:
           android {
               namespace = "com.khabeir.hotspot_cards"
 
-              compileSdk = flutter.compileSdkVersion
+              compileSdk =
+                  flutter.compileSdkVersion
 
-              ndkVersion = flutter.ndkVersion
+              ndkVersion =
+                  flutter.ndkVersion
 
               defaultConfig {
                   applicationId =
@@ -629,7 +570,8 @@ jobs:
               // Kotlin 17
               // ======================================================
               kotlinOptions {
-                  jvmTarget = JavaVersion.VERSION_17.toString()
+                  jvmTarget =
+                      JavaVersion.VERSION_17.toString()
               }
 
               // ======================================================
@@ -679,8 +621,9 @@ jobs:
           }
           EOF
 
-          echo "Release signing configured with Java/Kotlin JVM 17."
-          
+          echo "Release signing configured."
+
+
       # ============================================================
       # 17. Verify Android configuration
       # ============================================================
