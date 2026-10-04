@@ -44,35 +44,88 @@ jobs:
 
 
       # ============================================================
-      # 4. Configure Android JVM 17
+      # 4. Configure Android Java/Kotlin JVM 17 globally
       #
-      # مهم جداً:
-      # إصلاح تعارض Java 1.8 مع Kotlin 17
-      # ويطبق الإعداد على جميع Android subprojects،
-      # بما فيها receive_sharing_intent.
+      # توحيد Java و Kotlin على JVM 17 في التطبيق
+      # وجميع الحزم الخارجية مثل:
+      # file_picker
+      # receive_sharing_intent
+      # share_plus
+      # وغيرها.
       # ============================================================
       - name: Configure Android JVM 17
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          gradle = Path("android/build.gradle.kts")
+          root_gradle = Path("android/build.gradle.kts")
 
-          text = gradle.read_text(encoding="utf-8")
+          text = root_gradle.read_text(encoding="utf-8")
 
-          jvm_config = r'''
+          # إزالة أي إعداد سابق أضفناه لهذا الغرض.
+          marker = "// =========================================================="
+          start_marker = "// Global Java / Kotlin JVM target"
+
+          if start_marker in text:
+              start = text.find(start_marker)
+
+              # ابحث عن نهاية block الخاص بـ subprojects.
+              block_start = text.rfind(
+                  "// ==========================================================",
+                  0,
+                  start
+              )
+
+              if block_start >= 0:
+                  text = text[:block_start].rstrip() + "\n"
+
+          global_config = r'''
 
           // ==========================================================
-          // Global Java / Kotlin JVM target
+          // Global Java / Kotlin JVM 17
           // ==========================================================
 
           subprojects {
+              afterEvaluate {
+                  extensions.findByName("android")?.let { androidExtension ->
+                      androidExtension.javaClass
+                          .methods
+                          .firstOrNull {
+                              it.name == "getCompileOptions"
+                          }
+                          ?.invoke(androidExtension)
+                          ?.let { compileOptions ->
+                              compileOptions.javaClass
+                                  .methods
+                                  .firstOrNull {
+                                      it.name == "setSourceCompatibility"
+                                  }
+                                  ?.invoke(
+                                      compileOptions,
+                                      JavaVersion.VERSION_17
+                                  )
+
+                              compileOptions.javaClass
+                                  .methods
+                                  .firstOrNull {
+                                      it.name == "setTargetCompatibility"
+                                  }
+                                  ?.invoke(
+                                      compileOptions,
+                                      JavaVersion.VERSION_17
+                                  )
+                          }
+                  }
+              }
+
               tasks.withType<JavaCompile>().configureEach {
                   sourceCompatibility = "17"
                   targetCompatibility = "17"
               }
 
-              tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              tasks.withType<
+                  org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+              >().configureEach {
                   compilerOptions {
                       jvmTarget.set(
                           org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -82,17 +135,21 @@ jobs:
           }
           '''
 
-          if "Global Java / Kotlin JVM target" not in text:
-              text += jvm_config
+          text = text.rstrip() + global_config + "\n"
 
-          gradle.write_text(text, encoding="utf-8")
+          root_gradle.write_text(
+              text,
+              encoding="utf-8"
+          )
 
-          print("Global Java/Kotlin JVM 17 configured.")
+          print(
+              "Global Java/Kotlin JVM 17 configuration added."
+          )
           PY
 
           echo
           echo "========================================"
-          echo "ANDROID BUILD.GRADLE.KTS"
+          echo "ANDROID ROOT BUILD.GRADLE.KTS"
           echo "========================================"
 
           cat android/build.gradle.kts
@@ -507,9 +564,6 @@ jobs:
 
       # ============================================================
       # 16. Configure release signing + JVM 17
-      #
-      # Flutter 3.35 generates:
-      # android/app/build.gradle.kts
       # ============================================================
       - name: Configure release signing
         run: |
@@ -572,10 +626,10 @@ jobs:
               }
 
               // ======================================================
-              // Kotlin JVM 17
+              // Kotlin 17
               // ======================================================
               kotlinOptions {
-                  jvmTarget = "17"
+                  jvmTarget = JavaVersion.VERSION_17.toString()
               }
 
               // ======================================================
@@ -607,6 +661,9 @@ jobs:
                   }
               }
 
+              // ======================================================
+              // Release build
+              // ======================================================
               buildTypes {
                   getByName("release") {
                       signingConfig =
@@ -622,9 +679,8 @@ jobs:
           }
           EOF
 
-          echo "Release signing and JVM 17 configured."
-
-
+          echo "Release signing configured with Java/Kotlin JVM 17."
+          
       # ============================================================
       # 17. Verify Android configuration
       # ============================================================
