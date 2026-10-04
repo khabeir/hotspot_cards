@@ -615,11 +615,11 @@ jobs:
                           )
 
                       storeFile =
-    keystoreProperties
-        .getProperty("storeFile")
-        ?.let {
-            rootProject.file(it)
-        }
+                          keystoreProperties
+                              .getProperty("storeFile")
+                              ?.let {
+                                  rootProject.file(it)
+                              }
                   }
               }
 
