@@ -33,9 +33,6 @@ jobs:
 
       # ============================================================
       # 3. Create Android project
-      #
-      # مجلد android غير موجود في GitHub.
-      # يتم إنشاؤه هنا في GitHub Actions.
       # ============================================================
       - name: Create Android project
         run: |
@@ -47,7 +44,7 @@ jobs:
 
 
       # ============================================================
-      # 4. App name
+      # 4. Configure app name
       # ============================================================
       - name: Configure app name
         run: |
@@ -66,30 +63,34 @@ jobs:
               "android/app/src/main/AndroidManifest.xml"
           )
 
-          text = manifest.read_text()
+          text = manifest.read_text(encoding="utf-8")
 
           text = text.replace(
               'android:label="${applicationName}"',
               'android:label="@string/app_name"'
           )
 
-          text = text.replace(
-              'android:label="${applicationName}"',
-              'android:label="@string/app_name"'
+          manifest.write_text(
+              text,
+              encoding="utf-8"
           )
 
-          manifest.write_text(text)
+          print("App name configured successfully.")
           PY
 
 
       # ============================================================
-      # 5. Install icon
-      #
-      # مصدر الأيقونة:
-      # assets/app_icon/ic_launcher.png
+      # 5. Install launcher icon
       # ============================================================
       - name: Install app icon
         run: |
+          ICON="assets/app_icon/ic_launcher.png"
+
+          if [ ! -f "$ICON" ]; then
+            echo "ERROR: Icon file not found: $ICON"
+            exit 1
+          fi
+
           mkdir -p \
             android/app/src/main/res/mipmap-mdpi \
             android/app/src/main/res/mipmap-hdpi \
@@ -97,107 +98,222 @@ jobs:
             android/app/src/main/res/mipmap-xxhdpi \
             android/app/src/main/res/mipmap-xxxhdpi
 
-          cp assets/app_icon/ic_launcher.png \
+          cp "$ICON" \
             android/app/src/main/res/mipmap-mdpi/ic_launcher.png
 
-          cp assets/app_icon/ic_launcher.png \
+          cp "$ICON" \
             android/app/src/main/res/mipmap-hdpi/ic_launcher.png
 
-          cp assets/app_icon/ic_launcher.png \
+          cp "$ICON" \
             android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
 
-          cp assets/app_icon/ic_launcher.png \
+          cp "$ICON" \
             android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
 
-          cp assets/app_icon/ic_launcher.png \
+          cp "$ICON" \
             android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
+          echo "Launcher icon installed."
+
 
       # ============================================================
-      # 6. Configure launcher icon
+      # 6. Remove Flutter adaptive launcher icon
+      #
+      # حتى لا يستمر Android في استخدام أيقونة Flutter الافتراضية
       # ============================================================
-      - name: Configure launcher icon
+      - name: Remove default adaptive icon
+        run: |
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+          rm -rf android/app/src/main/res/mipmap-anydpi
+
+          rm -f android/app/src/main/res/drawable/ic_launcher_foreground.xml
+          rm -f android/app/src/main/res/drawable/ic_launcher_foreground.png
+
+          echo "Default adaptive launcher icon removed."
+
+
+      # ============================================================
+      # 7. Configure launcher icon in manifest
+      # ============================================================
+      - name: Configure launcher manifest
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           manifest = Path(
               "android/app/src/main/AndroidManifest.xml"
           )
 
-          text = manifest.read_text()
+          text = manifest.read_text(encoding="utf-8")
 
-          text = text.replace(
-              'android:icon="@mipmap/ic_launcher"',
-              'android:icon="@mipmap/ic_launcher"'
-          )
-
+          # Ensure android:icon exists.
           if 'android:icon="@mipmap/ic_launcher"' not in text:
               text = text.replace(
-                  '<application',
+                  "<application",
                   '<application android:icon="@mipmap/ic_launcher"',
                   1
               )
 
-          manifest.write_text(text)
+          # Replace any generated icon value.
+          text = re.sub(
+              r'android:icon="[^"]*"',
+              'android:icon="@mipmap/ic_launcher"',
+              text,
+              count=1
+          )
+
+          manifest.write_text(
+              text,
+              encoding="utf-8"
+          )
+
+          print("Launcher manifest configured.")
           PY
 
 
       # ============================================================
-      # 7. CSV Open With support
+      # 8. Configure MainActivity
       #
-      # VIEW:
-      # مدير الملفات -> فتح بواسطة -> بائع الكروت
-      #
-      # SEND:
-      # مشاركة الملف -> بائع الكروت
+      # يحول ACTION_VIEW إلى ACTION_SEND حتى يستطيع
+      # receive_sharing_intent استقبال ملف CSV.
       # ============================================================
-      - name: Configure CSV intents
+      - name: Configure MainActivity for CSV
+        run: |
+          mkdir -p \
+            android/app/src/main/kotlin/com/khabeir/hotspot_cards
+
+          cat > android/app/src/main/kotlin/com/khabeir/hotspot_cards/MainActivity.kt <<'EOF'
+          package com.khabeir.hotspot_cards
+
+          import android.content.Intent
+          import android.os.Bundle
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity : FlutterActivity() {
+
+              override fun onCreate(
+                  savedInstanceState: Bundle?
+              ) {
+                  normalizeViewIntent(intent)
+                  super.onCreate(savedInstanceState)
+              }
+
+              override fun onNewIntent(intent: Intent) {
+                  normalizeViewIntent(intent)
+                  super.onNewIntent(intent)
+              }
+
+              private fun normalizeViewIntent(
+                  source: Intent?
+              ) {
+                  if (source?.action != Intent.ACTION_VIEW) {
+                      return
+                  }
+
+                  val uri = source.data ?: return
+
+                  val normalized = Intent(
+                      Intent.ACTION_SEND
+                  ).apply {
+                      type = source.type ?: "text/csv"
+                      putExtra(
+                          Intent.EXTRA_STREAM,
+                          uri
+                      )
+                      addFlags(source.flags)
+                  }
+
+                  setIntent(normalized)
+              }
+          }
+          EOF
+
+          echo "MainActivity configured."
+
+
+      # ============================================================
+      # 9. Configure CSV Open With + Share
+      # ============================================================
+      - name: Configure CSV open-with support
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           manifest = Path(
               "android/app/src/main/AndroidManifest.xml"
           )
 
-          text = manifest.read_text()
-
-          # receive_sharing_intent يحتاج singleTask
-          text = text.replace(
-              'android:name=".MainActivity"',
-              'android:name=".MainActivity"\n'
-              '            android:launchMode="singleTask"'
+          text = manifest.read_text(
+              encoding="utf-8"
           )
 
-          launcher = """        <intent-filter>
-                  <action android:name="android.intent.action.MAIN"/>
-                  <category android:name="android.intent.category.LAUNCHER"/>
-              </intent-filter>"""
+          activity_pattern = (
+              r'(<activity\b'
+              r'[^>]*android:name="\.MainActivity"'
+              r'[^>]*>)'
+              r'(.*?)'
+              r'(</activity>)'
+          )
 
-          intents = """
+          match = re.search(
+              activity_pattern,
+              text,
+              re.DOTALL
+          )
 
-              <!-- فتح ملفات CSV بواسطة بائع الكروت -->
+          if not match:
+              raise SystemExit(
+                  "ERROR: MainActivity activity was not found."
+              )
+
+          activity_open = match.group(1)
+          activity_body = match.group(2)
+          activity_close = match.group(3)
+
+          # Remove previously generated CSV filters if any.
+          activity_body = re.sub(
+              r'\s*<intent-filter>\s*'
+              r'<action android:name="android\.intent\.action\.VIEW"\s*/>\s*'
+              r'<category android:name="android\.intent\.category\.DEFAULT"\s*/>\s*'
+              r'<data android:mimeType="(?:text/csv|application/csv|text/comma-separated-values)"\s*/>\s*'
+              r'</intent-filter>',
+              '',
+              activity_body,
+              flags=re.DOTALL
+          )
+
+          activity_body = re.sub(
+              r'\s*<intent-filter>\s*'
+              r'<action android:name="android\.intent\.action\.SEND"\s*/>\s*'
+              r'<category android:name="android\.intent\.category\.DEFAULT"\s*/>\s*'
+              r'<data android:mimeType="(?:text/csv|application/csv|text/comma-separated-values)"\s*/>\s*'
+              r'</intent-filter>',
+              '',
+              activity_body,
+              flags=re.DOTALL
+          )
+
+          filters = r'''
               <intent-filter>
                   <action android:name="android.intent.action.VIEW" />
                   <category android:name="android.intent.category.DEFAULT" />
-                  <category android:name="android.intent.category.BROWSABLE" />
-                  <data
-                      android:scheme="content"
-                      android:mimeType="text/csv" />
+                  <data android:mimeType="text/csv" />
               </intent-filter>
 
-              <!-- بعض مديري الملفات يستخدمون application/csv -->
               <intent-filter>
                   <action android:name="android.intent.action.VIEW" />
                   <category android:name="android.intent.category.DEFAULT" />
-                  <category android:name="android.intent.category.BROWSABLE" />
-                  <data
-                      android:scheme="content"
-                      android:mimeType="application/csv" />
+                  <data android:mimeType="application/csv" />
               </intent-filter>
 
-              <!-- دعم مشاركة أي ملف -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="text/comma-separated-values" />
+              </intent-filter>
+
               <intent-filter>
                   <action android:name="android.intent.action.SEND" />
                   <category android:name="android.intent.category.DEFAULT" />
@@ -210,40 +326,40 @@ jobs:
                   <data android:mimeType="application/csv" />
               </intent-filter>
 
-              <!-- بعض التطبيقات ترسل الملف كـ octet-stream -->
-              <intent-filter>
-                  <action android:name="android.intent.action.VIEW" />
-                  <category android:name="android.intent.category.DEFAULT" />
-                  <category android:name="android.intent.category.BROWSABLE" />
-                  <data
-                      android:scheme="content"
-                      android:mimeType="application/octet-stream" />
-              </intent-filter>
-
               <intent-filter>
                   <action android:name="android.intent.action.SEND" />
                   <category android:name="android.intent.category.DEFAULT" />
-                  <data android:mimeType="application/octet-stream" />
+                  <data android:mimeType="text/comma-separated-values" />
               </intent-filter>
-          """
+          '''
 
-          if launcher not in text:
-              raise SystemExit(
-                  "Flutter launcher intent-filter was not found."
-              )
-
-          text = text.replace(
-              launcher,
-              launcher + intents,
-              1
+          new_activity = (
+              activity_open
+              + activity_body
+              + filters
+              + activity_close
           )
 
-          manifest.write_text(text)
+          text = (
+              text[:match.start()]
+              + new_activity
+              + text[match.end():]
+          )
+
+          manifest.write_text(
+              text,
+              encoding="utf-8"
+          )
+
+          print(
+              "CSV Open With and Share intent filters "
+              "configured successfully."
+          )
           PY
 
 
       # ============================================================
-      # 8. Remove default test
+      # 10. Remove default Flutter test
       # ============================================================
       - name: Remove default Flutter test
         run: |
@@ -251,7 +367,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Dependencies
+      # 11. Get dependencies
       # ============================================================
       - name: Flutter pub get
         run: |
@@ -259,7 +375,7 @@ jobs:
 
 
       # ============================================================
-      # 10. Analyze
+      # 12. Analyze
       # ============================================================
       - name: Flutter analyze
         run: |
@@ -267,19 +383,17 @@ jobs:
 
 
       # ============================================================
-      # 11. Decode signing keystore
-      #
-      # GitHub Secrets:
-      #
-      # KEYSTORE_BASE64
-      # KEYSTORE_PASSWORD
-      # KEY_ALIAS
-      # KEY_PASSWORD
+      # 13. Prepare release keystore
       # ============================================================
       - name: Prepare release keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "ERROR: KEYSTORE_BASE64 secret is missing."
+            exit 1
+          fi
+
           mkdir -p android/keystore
 
           echo "$KEYSTORE_BASE64" | base64 --decode \
@@ -288,11 +402,11 @@ jobs:
           test -s \
             android/keystore/baye_al_cards_release.jks
 
-          echo "Release keystore prepared."
+          echo "Release keystore prepared successfully."
 
 
       # ============================================================
-      # 12. Create key.properties
+      # 14. Create key.properties
       # ============================================================
       - name: Create key.properties
         env:
@@ -300,6 +414,21 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "ERROR: KEYSTORE_PASSWORD secret is missing."
+            exit 1
+          fi
+
+          if [ -z "$KEY_ALIAS" ]; then
+            echo "ERROR: KEY_ALIAS secret is missing."
+            exit 1
+          fi
+
+          if [ -z "$KEY_PASSWORD" ]; then
+            echo "ERROR: KEY_PASSWORD secret is missing."
+            exit 1
+          fi
+
           cat > android/key.properties <<EOF
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
@@ -307,30 +436,27 @@ jobs:
           storeFile=keystore/baye_al_cards_release.jks
           EOF
 
+          echo "key.properties created."
+
 
       # ============================================================
-      # 13. Configure signing for Flutter 3.35 Kotlin DSL
+      # 15. Configure release signing
+      #
+      # Flutter 3.35 generates Kotlin DSL:
+      # android/app/build.gradle.kts
       # ============================================================
       - name: Configure release signing
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          gradle = Path(
-              "android/app/build.gradle.kts"
-          )
-
-          text = gradle.read_text()
-
-          imports = """import java.util.Properties
+          cat > android/app/build.gradle.kts <<'EOF'
           import java.io.FileInputStream
+          import java.util.Properties
 
-          """
+          plugins {
+              id("com.android.application")
+              id("kotlin-android")
+              id("dev.flutter.flutter-gradle-plugin")
+          }
 
-          if "import java.util.Properties" not in text:
-              text = imports + text
-
-          properties_block = """
           val keystoreProperties = Properties()
           val keystorePropertiesFile =
               rootProject.file("key.properties")
@@ -341,135 +467,108 @@ jobs:
               )
           }
 
-          """
+          android {
+              namespace = "com.khabeir.hotspot_cards"
 
-          if "val keystoreProperties = Properties()" not in text:
-              marker = 'android {'
+              compileSdk = flutter.compileSdkVersion
+              ndkVersion = flutter.ndkVersion
 
-              if marker not in text:
-                  raise SystemExit(
-                      "android block not found."
-                  )
+              defaultConfig {
+                  applicationId = "com.khabeir.hotspot_cards"
 
-              text = text.replace(
-                  marker,
-                  properties_block + marker,
-                  1
-              )
+                  minSdk = flutter.minSdkVersion
+                  targetSdk = flutter.targetSdkVersion
 
-          signing_block = """
+                  versionCode = flutter.versionCode
+                  versionName = flutter.versionName
+              }
+
               signingConfigs {
                   create("release") {
                       keyAlias =
-                          keystoreProperties.getProperty("keyAlias")
+                          keystoreProperties.getProperty(
+                              "keyAlias"
+                          )
 
                       keyPassword =
-                          keystoreProperties.getProperty("keyPassword")
-
-                      storeFile =
-                          keystoreProperties
-                              .getProperty("storeFile")
-                              ?.let { file(it) }
+                          keystoreProperties.getProperty(
+                              "keyPassword"
+                          )
 
                       storePassword =
                           keystoreProperties.getProperty(
                               "storePassword"
                           )
+
+                      storeFile =
+                          keystoreProperties
+                              .getProperty("storeFile")
+                              ?.let { file(it) }
                   }
               }
 
-          """
-
-          if 'create("release")' not in text:
-              marker = "    buildTypes {"
-
-              if marker not in text:
-                  raise SystemExit(
-                      "buildTypes block not found."
-                  )
-
-              text = text.replace(
-                  marker,
-                  signing_block + marker,
-                  1
-              )
-
-          release_signing = """
-              release {
-                  signingConfig =
-                      signingConfigs.getByName("release")
+              buildTypes {
+                  getByName("release") {
+                      signingConfig =
+                          signingConfigs.getByName("release")
+                  }
               }
-          """
+          }
 
-          if 'signingConfigs.getByName("release")' not in text:
-              marker = "    buildTypes {"
+          flutter {
+              source = "../.."
+          }
+          EOF
 
-              start = text.find(marker)
-
-              if start == -1:
-                  raise SystemExit(
-                      "buildTypes block not found."
-                  )
-
-              release_start = text.find(
-                  "        release {",
-                  start
-              )
-
-              if release_start == -1:
-                  raise SystemExit(
-                      "release buildType block not found."
-                  )
-
-              release_end = text.find(
-                  "        }",
-                  release_start
-              )
-
-              if release_end == -1:
-                  raise SystemExit(
-                      "release buildType end not found."
-                  )
-
-              insert_at = release_end
-
-              text = (
-                  text[:insert_at]
-                  + "\n"
-                  + release_signing
-                  + text[insert_at:]
-              )
-
-          gradle.write_text(text)
-          PY
+          echo "Release signing configured."
 
 
       # ============================================================
-      # 14. Verify configuration
+      # 16. Verify Android configuration
       # ============================================================
       - name: Verify Android configuration
         run: |
-          echo "===== build.gradle.kts ====="
+          echo "========================================"
+          echo "BUILD.GRADLE.KTS"
+          echo "========================================"
+
           cat android/app/build.gradle.kts
 
           echo
-          echo "===== AndroidManifest.xml ====="
+          echo "========================================"
+          echo "ANDROID MANIFEST"
+          echo "========================================"
+
           cat android/app/src/main/AndroidManifest.xml
 
           echo
-          echo "===== Launcher icons ====="
+          echo "========================================"
+          echo "MAIN ACTIVITY"
+          echo "========================================"
+
+          cat \
+            android/app/src/main/kotlin/com/khabeir/hotspot_cards/MainActivity.kt
+
+          echo
+          echo "========================================"
+          echo "LAUNCHER ICONS"
+          echo "========================================"
+
           find android/app/src/main/res \
             -type f \
             | sort
 
           echo
-          echo "===== Keystore ====="
+          echo "========================================"
+          echo "KEYSTORE"
+          echo "========================================"
+
           ls -lh \
             android/keystore/baye_al_cards_release.jks
 
 
       # ============================================================
-      # 15. Clean build
+      # 17. Clean
       # ============================================================
       - name: Flutter clean
         run: |
@@ -477,7 +576,7 @@ jobs:
 
 
       # ============================================================
-      # 16. Build signed APK
+      # 18. Build signed APK
       # ============================================================
       - name: Build signed APK
         run: |
@@ -485,7 +584,7 @@ jobs:
 
 
       # ============================================================
-      # 17. Build signed AAB
+      # 19. Build signed AAB
       # ============================================================
       - name: Build signed AAB
         run: |
@@ -493,7 +592,7 @@ jobs:
 
 
       # ============================================================
-      # 18. Prepare release files
+      # 20. Prepare release files
       # ============================================================
       - name: Prepare release artifacts
         run: |
@@ -511,7 +610,7 @@ jobs:
 
 
       # ============================================================
-      # 19. Upload APK
+      # 21. Upload APK
       # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -521,7 +620,7 @@ jobs:
 
 
       # ============================================================
-      # 20. Upload AAB
+      # 22. Upload AAB
       # ============================================================
       - name: Upload AAB
         uses: actions/upload-artifact@v4
@@ -531,7 +630,7 @@ jobs:
 
 
       # ============================================================
-      # 21. Remove sensitive signing files
+      # 23. Cleanup signing files
       # ============================================================
       - name: Cleanup signing files
         if: always()
