@@ -1,9 +1,10 @@
-name: Build Android APK
+name: Build Signed Android APK and AAB
 
 on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 jobs:
@@ -11,9 +12,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ============================================================
+      # 2. Flutter 3.35.0
+      # ============================================================
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -21,6 +30,13 @@ jobs:
           channel: stable
           cache: true
 
+
+      # ============================================================
+      # 3. Create Android project
+      #
+      # مجلد android غير موجود في GitHub.
+      # يتم إنشاؤه هنا في GitHub Actions.
+      # ============================================================
       - name: Create Android project
         run: |
           flutter create \
@@ -29,7 +45,11 @@ jobs:
             --project-name hotspot_cards \
             .
 
-      - name: Set Android app name
+
+      # ============================================================
+      # 4. App name
+      # ============================================================
+      - name: Configure app name
         run: |
           mkdir -p android/app/src/main/res/values
 
@@ -39,9 +59,35 @@ jobs:
           </resources>
           EOF
 
-          sed -i 's/android:label="[^"]*"/android:label="@string\/app_name"/' \
-            android/app/src/main/AndroidManifest.xml
+          python3 - <<'PY'
+          from pathlib import Path
 
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          text = manifest.read_text()
+
+          text = text.replace(
+              'android:label="${applicationName}"',
+              'android:label="@string/app_name"'
+          )
+
+          text = text.replace(
+              'android:label="${applicationName}"',
+              'android:label="@string/app_name"'
+          )
+
+          manifest.write_text(text)
+          PY
+
+
+      # ============================================================
+      # 5. Install icon
+      #
+      # مصدر الأيقونة:
+      # assets/app_icon/ic_launcher.png
+      # ============================================================
       - name: Install app icon
         run: |
           mkdir -p \
@@ -66,32 +112,429 @@ jobs:
           cp assets/app_icon/ic_launcher.png \
             android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
-          sed -i 's#android:icon="@mipmap/ic_launcher"#android:icon="@mipmap/ic_launcher"#' \
-            android/app/src/main/AndroidManifest.xml
 
+      # ============================================================
+      # 6. Configure launcher icon
+      # ============================================================
+      - name: Configure launcher icon
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          text = manifest.read_text()
+
+          text = text.replace(
+              'android:icon="@mipmap/ic_launcher"',
+              'android:icon="@mipmap/ic_launcher"'
+          )
+
+          if 'android:icon="@mipmap/ic_launcher"' not in text:
+              text = text.replace(
+                  '<application',
+                  '<application android:icon="@mipmap/ic_launcher"',
+                  1
+              )
+
+          manifest.write_text(text)
+          PY
+
+
+      # ============================================================
+      # 7. CSV Open With support
+      #
+      # VIEW:
+      # مدير الملفات -> فتح بواسطة -> بائع الكروت
+      #
+      # SEND:
+      # مشاركة الملف -> بائع الكروت
+      # ============================================================
+      - name: Configure CSV intents
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          text = manifest.read_text()
+
+          # receive_sharing_intent يحتاج singleTask
+          text = text.replace(
+              'android:name=".MainActivity"',
+              'android:name=".MainActivity"\n'
+              '            android:launchMode="singleTask"'
+          )
+
+          launcher = """        <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+              </intent-filter>"""
+
+          intents = """
+
+              <!-- فتح ملفات CSV بواسطة بائع الكروت -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data
+                      android:scheme="content"
+                      android:mimeType="text/csv" />
+              </intent-filter>
+
+              <!-- بعض مديري الملفات يستخدمون application/csv -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data
+                      android:scheme="content"
+                      android:mimeType="application/csv" />
+              </intent-filter>
+
+              <!-- دعم مشاركة أي ملف -->
+              <intent-filter>
+                  <action android:name="android.intent.action.SEND" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="text/csv" />
+              </intent-filter>
+
+              <intent-filter>
+                  <action android:name="android.intent.action.SEND" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="application/csv" />
+              </intent-filter>
+
+              <!-- بعض التطبيقات ترسل الملف كـ octet-stream -->
+              <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data
+                      android:scheme="content"
+                      android:mimeType="application/octet-stream" />
+              </intent-filter>
+
+              <intent-filter>
+                  <action android:name="android.intent.action.SEND" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <data android:mimeType="application/octet-stream" />
+              </intent-filter>
+          """
+
+          if launcher not in text:
+              raise SystemExit(
+                  "Flutter launcher intent-filter was not found."
+              )
+
+          text = text.replace(
+              launcher,
+              launcher + intents,
+              1
+          )
+
+          manifest.write_text(text)
+          PY
+
+
+      # ============================================================
+      # 8. Remove default test
+      # ============================================================
       - name: Remove default Flutter test
-        run: rm -f test/widget_test.dart
+        run: |
+          rm -f test/widget_test.dart
 
-      - name: Get dependencies
-        run: flutter pub get
 
-      - name: Analyze
-        run: flutter analyze
+      # ============================================================
+      # 9. Dependencies
+      # ============================================================
+      - name: Flutter pub get
+        run: |
+          flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --release
 
-      - name: Build AAB
-        run: flutter build appbundle --release
+      # ============================================================
+      # 10. Analyze
+      # ============================================================
+      - name: Flutter analyze
+        run: |
+          flutter analyze
 
+
+      # ============================================================
+      # 11. Decode signing keystore
+      #
+      # GitHub Secrets:
+      #
+      # KEYSTORE_BASE64
+      # KEYSTORE_PASSWORD
+      # KEY_ALIAS
+      # KEY_PASSWORD
+      # ============================================================
+      - name: Prepare release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p android/keystore
+
+          echo "$KEYSTORE_BASE64" | base64 --decode \
+            > android/keystore/baye_al_cards_release.jks
+
+          test -s \
+            android/keystore/baye_al_cards_release.jks
+
+          echo "Release keystore prepared."
+
+
+      # ============================================================
+      # 12. Create key.properties
+      # ============================================================
+      - name: Create key.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=$KEYSTORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=keystore/baye_al_cards_release.jks
+          EOF
+
+
+      # ============================================================
+      # 13. Configure signing for Flutter 3.35 Kotlin DSL
+      # ============================================================
+      - name: Configure release signing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path(
+              "android/app/build.gradle.kts"
+          )
+
+          text = gradle.read_text()
+
+          imports = """import java.util.Properties
+          import java.io.FileInputStream
+
+          """
+
+          if "import java.util.Properties" not in text:
+              text = imports + text
+
+          properties_block = """
+          val keystoreProperties = Properties()
+          val keystorePropertiesFile =
+              rootProject.file("key.properties")
+
+          if (keystorePropertiesFile.exists()) {
+              keystoreProperties.load(
+                  FileInputStream(keystorePropertiesFile)
+              )
+          }
+
+          """
+
+          if "val keystoreProperties = Properties()" not in text:
+              marker = 'android {'
+
+              if marker not in text:
+                  raise SystemExit(
+                      "android block not found."
+                  )
+
+              text = text.replace(
+                  marker,
+                  properties_block + marker,
+                  1
+              )
+
+          signing_block = """
+              signingConfigs {
+                  create("release") {
+                      keyAlias =
+                          keystoreProperties.getProperty("keyAlias")
+
+                      keyPassword =
+                          keystoreProperties.getProperty("keyPassword")
+
+                      storeFile =
+                          keystoreProperties
+                              .getProperty("storeFile")
+                              ?.let { file(it) }
+
+                      storePassword =
+                          keystoreProperties.getProperty(
+                              "storePassword"
+                          )
+                  }
+              }
+
+          """
+
+          if 'create("release")' not in text:
+              marker = "    buildTypes {"
+
+              if marker not in text:
+                  raise SystemExit(
+                      "buildTypes block not found."
+                  )
+
+              text = text.replace(
+                  marker,
+                  signing_block + marker,
+                  1
+              )
+
+          release_signing = """
+              release {
+                  signingConfig =
+                      signingConfigs.getByName("release")
+              }
+          """
+
+          if 'signingConfigs.getByName("release")' not in text:
+              marker = "    buildTypes {"
+
+              start = text.find(marker)
+
+              if start == -1:
+                  raise SystemExit(
+                      "buildTypes block not found."
+                  )
+
+              release_start = text.find(
+                  "        release {",
+                  start
+              )
+
+              if release_start == -1:
+                  raise SystemExit(
+                      "release buildType block not found."
+                  )
+
+              release_end = text.find(
+                  "        }",
+                  release_start
+              )
+
+              if release_end == -1:
+                  raise SystemExit(
+                      "release buildType end not found."
+                  )
+
+              insert_at = release_end
+
+              text = (
+                  text[:insert_at]
+                  + "\n"
+                  + release_signing
+                  + text[insert_at:]
+              )
+
+          gradle.write_text(text)
+          PY
+
+
+      # ============================================================
+      # 14. Verify configuration
+      # ============================================================
+      - name: Verify Android configuration
+        run: |
+          echo "===== build.gradle.kts ====="
+          cat android/app/build.gradle.kts
+
+          echo
+          echo "===== AndroidManifest.xml ====="
+          cat android/app/src/main/AndroidManifest.xml
+
+          echo
+          echo "===== Launcher icons ====="
+          find android/app/src/main/res \
+            -type f \
+            | sort
+
+          echo
+          echo "===== Keystore ====="
+          ls -lh \
+            android/keystore/baye_al_cards_release.jks
+
+
+      # ============================================================
+      # 15. Clean build
+      # ============================================================
+      - name: Flutter clean
+        run: |
+          flutter clean
+
+
+      # ============================================================
+      # 16. Build signed APK
+      # ============================================================
+      - name: Build signed APK
+        run: |
+          flutter build apk --release
+
+
+      # ============================================================
+      # 17. Build signed AAB
+      # ============================================================
+      - name: Build signed AAB
+        run: |
+          flutter build appbundle --release
+
+
+      # ============================================================
+      # 18. Prepare release files
+      # ============================================================
+      - name: Prepare release artifacts
+        run: |
+          mkdir -p release
+
+          cp \
+            build/app/outputs/flutter-apk/app-release.apk \
+            release/baye_al_cards-release.apk
+
+          cp \
+            build/app/outputs/bundle/release/app-release.aab \
+            release/baye_al_cards-release.aab
+
+          ls -lh release/
+
+
+      # ============================================================
+      # 19. Upload APK
+      # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: hotspot-cards-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: baye-al-cards-release-apk
+          path: release/baye_al_cards-release.apk
 
+
+      # ============================================================
+      # 20. Upload AAB
+      # ============================================================
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
-          name: hotspot-cards-release-aab
-          path: build/app/outputs/bundle/release/app-release.aab
+          name: baye-al-cards-release-aab
+          path: release/baye_al_cards-release.aab
+
+
+      # ============================================================
+      # 21. Remove sensitive signing files
+      # ============================================================
+      - name: Cleanup signing files
+        if: always()
+        run: |
+          rm -f android/key.properties
+          rm -f android/keystore/baye_al_cards_release.jks

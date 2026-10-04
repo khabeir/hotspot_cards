@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -88,7 +90,10 @@ class Voucher {
   }
 
   static int _toInt(dynamic value) {
-    if (value is int) return value;
+    if (value is int) {
+      return value;
+    }
+
     return int.tryParse('$value') ?? 0;
   }
 }
@@ -120,6 +125,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _showHeader = true;
 
+  StreamSubscription<List<SharedMediaFile>>? _intentSub;
+
+  bool _handlingSharedFile = false;
+
   @override
   void initState() {
     super.initState();
@@ -127,14 +136,175 @@ class _HomeScreenState extends State<HomeScreen> {
     loadVouchers();
 
     searchController.addListener(() {
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     });
+
+    _setupSharingIntent();
   }
 
   @override
   void dispose() {
+    _intentSub?.cancel();
     searchController.dispose();
     super.dispose();
+  }
+
+  // ============================================================
+  // استقبال الملفات من "فتح بواسطة"
+  // ============================================================
+
+  Future<void> _setupSharingIntent() async {
+    _intentSub =
+        ReceiveSharingIntent.instance.getMediaStream().listen(
+      (files) {
+        _handleIncomingFiles(files);
+      },
+      onError: (_) {},
+    );
+
+    try {
+      final initialFiles =
+          await ReceiveSharingIntent.instance.getInitialMedia();
+
+      if (initialFiles.isNotEmpty) {
+        await _handleIncomingFiles(initialFiles);
+
+        await ReceiveSharingIntent.instance.reset();
+      }
+    } catch (_) {
+      // تجاهل أخطاء استقبال Intent.
+    }
+  }
+
+  Future<void> _handleIncomingFiles(
+    List<SharedMediaFile> files,
+  ) async {
+    if (_handlingSharedFile) {
+      return;
+    }
+
+    final csvFiles = <SharedMediaFile>[];
+
+    for (final file in files) {
+      final path = file.path.trim();
+
+      if (path.isEmpty) {
+        continue;
+      }
+
+      final lowerPath = path.toLowerCase();
+
+      if (lowerPath.endsWith('.csv')) {
+        csvFiles.add(file);
+      }
+    }
+
+    if (csvFiles.isEmpty) {
+      return;
+    }
+
+    _handlingSharedFile = true;
+
+    try {
+      await Future<void>.delayed(
+        const Duration(milliseconds: 300),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      await _importSharedCsvFiles(csvFiles);
+    } finally {
+      _handlingSharedFile = false;
+    }
+  }
+
+  Future<void> _importSharedCsvFiles(
+    List<SharedMediaFile> files,
+  ) async {
+    final authorized = await verifyImportCode();
+
+    if (!authorized) {
+      return;
+    }
+
+    int totalAdded = 0;
+    int totalDuplicates = 0;
+    int totalFiles = 0;
+
+    for (final sharedFile in files) {
+      try {
+        final path = sharedFile.path;
+
+        if (path.isEmpty) {
+          continue;
+        }
+
+        final file = File(path);
+
+        if (!await file.exists()) {
+          continue;
+        }
+
+        final bytes = await file.readAsBytes();
+
+        if (bytes.isEmpty) {
+          continue;
+        }
+
+        final result = await importCsvBytes(bytes);
+
+        totalAdded += result.added;
+        totalDuplicates += result.duplicates;
+        totalFiles++;
+      } catch (_) {
+        // تجاهل الملف غير القابل للقراءة.
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      filter = VoucherFilter.all;
+      selectedProfile = 'الكل';
+      searchController.clear();
+    });
+
+    await saveVouchers();
+
+    if (totalFiles == 0) {
+      showMessage(
+        'تعذر قراءة ملف CSV المحدد',
+      );
+      return;
+    }
+
+    if (totalAdded == 0 && totalDuplicates == 0) {
+      showMessage(
+        'لم يتم العثور على كروت جديدة في الملف',
+      );
+      return;
+    }
+
+    String message =
+        'تم استيراد $totalAdded كرت بنجاح';
+
+    if (totalFiles > 1) {
+      message +=
+          '\nعدد الملفات: $totalFiles';
+    }
+
+    if (totalDuplicates > 0) {
+      message +=
+          '\nتم تجاهل $totalDuplicates كرت مكرر';
+    }
+
+    showMessage(message);
   }
 
   // ============================================================
@@ -188,11 +358,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Color _profileBackgroundColor(String profile) {
-    return _profileColors[_profileColorIndex(profile)];
+    return _profileColors[
+        _profileColorIndex(profile)];
   }
 
   Color _profileAccentColor(String profile) {
-    return _profileAccentColors[_profileColorIndex(profile)];
+    return _profileAccentColors[
+        _profileColorIndex(profile)];
   }
 
   // ============================================================
@@ -200,15 +372,23 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   Future<void> loadVouchers() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(storageKey);
+    final prefs =
+        await SharedPreferences.getInstance();
+
+    final saved =
+        prefs.getString(storageKey);
 
     if (saved == null || saved.isEmpty) {
       return;
     }
 
     try {
-      final List<dynamic> data = jsonDecode(saved);
+      final List<dynamic> data =
+          jsonDecode(saved);
+
+      if (!mounted) {
+        return;
+      }
 
       setState(() {
         vouchers = data
@@ -220,12 +400,13 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList();
       });
     } catch (_) {
-      // تجاهل البيانات غير الصالحة
+      // تجاهل البيانات غير الصالحة.
     }
   }
 
   Future<void> saveVouchers() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs =
+        await SharedPreferences.getInstance();
 
     final data =
         vouchers.map((voucher) => voucher.toJson()).toList();
@@ -246,29 +427,37 @@ class _HomeScreenState extends State<HomeScreen> {
     final expectedCode =
         now.day * 999 * now.month;
 
-    final controller = TextEditingController();
+    final controller =
+        TextEditingController();
 
-    final enteredCode = await showDialog<String>(
+    final enteredCode =
+        await showDialog<String>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          title: const Text('رمز السماح بالاستيراد'),
+          title:
+              const Text('رمز السماح بالاستيراد'),
           content: TextField(
             controller: controller,
-            keyboardType: TextInputType.number,
+            keyboardType:
+                TextInputType.number,
             autofocus: true,
-            decoration: const InputDecoration(
+            decoration:
+                const InputDecoration(
               labelText: 'أدخل رمز اليوم',
               hintText: 'رمز الاستيراد',
-              border: OutlineInputBorder(),
+              border:
+                  OutlineInputBorder(),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () =>
-                  Navigator.of(context).pop(null),
-              child: const Text('إلغاء'),
+                  Navigator.of(context)
+                      .pop(null),
+              child:
+                  const Text('إلغاء'),
             ),
             FilledButton(
               onPressed: () {
@@ -276,7 +465,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller.text.trim(),
                 );
               },
-              child: const Text('تحقق'),
+              child:
+                  const Text('تحقق'),
             ),
           ],
         );
@@ -289,23 +479,27 @@ class _HomeScreenState extends State<HomeScreen> {
       return false;
     }
 
-    if (enteredCode == expectedCode.toString()) {
+    if (enteredCode ==
+        expectedCode.toString()) {
       return true;
     }
 
     if (mounted) {
-      showMessage('رمز الاستيراد غير صحيح');
+      showMessage(
+        'رمز الاستيراد غير صحيح',
+      );
     }
 
     return false;
   }
 
   // ============================================================
-  // استيراد CSV
+  // استيراد CSV من File Picker
   // ============================================================
 
   Future<void> importCsv() async {
-    final authorized = await verifyImportCode();
+    final authorized =
+        await verifyImportCode();
 
     if (!authorized) {
       return;
@@ -319,7 +513,8 @@ class _HomeScreenState extends State<HomeScreen> {
       allowMultiple: true,
     );
 
-    if (result == null || result.files.isEmpty) {
+    if (result == null ||
+        result.files.isEmpty) {
       return;
     }
 
@@ -333,10 +528,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final importResult =
-          await importCsvBytes(file.bytes!);
+          await importCsvBytes(
+        file.bytes!,
+      );
 
-      totalAdded += importResult.added;
-      totalDuplicates += importResult.duplicates;
+      totalAdded +=
+          importResult.added;
+
+      totalDuplicates +=
+          importResult.duplicates;
     }
 
     if (!mounted) {
@@ -370,7 +570,8 @@ class _HomeScreenState extends State<HomeScreen> {
     showMessage(message);
   }
 
-  Future<({int added, int duplicates})> importCsvBytes(
+  Future<({int added, int duplicates})>
+      importCsvBytes(
     List<int> bytes,
   ) async {
     int addedCount = 0;
@@ -387,7 +588,8 @@ class _HomeScreenState extends State<HomeScreen> {
         '',
       );
 
-      final rows = const CsvToListConverter(
+      final rows =
+          const CsvToListConverter(
         shouldParseNumbers: false,
         eol: '\n',
       ).convert(content);
@@ -414,23 +616,33 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
 
-      final idIndex = indexOf('id');
+      final idIndex =
+          indexOf('id');
+
       final usernameIndex =
           indexOf('username');
+
       final passwordIndex =
           indexOf('password');
+
       final profileIndex =
           indexOf('profile');
+
       final timeIndex =
           indexOf('time limit');
+
       final dataIndex =
           indexOf('data limit');
+
       final commentIndex =
           indexOf('comment');
 
-      final soldIndex = indexOf('sold');
+      final soldIndex =
+          indexOf('sold');
+
       final buyerNameIndex =
           indexOf('buyer name');
+
       final soldTimeIndex =
           indexOf('sold time');
 
@@ -474,9 +686,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (usedIds.isNotEmpty) {
         nextId =
             usedIds.reduce(
-              (a, b) => a > b ? a : b,
-            ) +
-            1;
+                  (a, b) =>
+                      a > b ? a : b,
+                ) +
+                1;
       }
 
       for (int i = 1;
@@ -484,7 +697,8 @@ class _HomeScreenState extends State<HomeScreen> {
           i++) {
         final row = rows[i];
 
-        final username = value(
+        final username =
+            value(
           row,
           usernameIndex,
         );
@@ -493,22 +707,26 @@ class _HomeScreenState extends State<HomeScreen> {
           continue;
         }
 
-        final profile = value(
+        final profile =
+            value(
           row,
           profileIndex,
         );
 
-        final key = _voucherKey(
+        final key =
+            _voucherKey(
           username,
           profile,
         );
 
-        if (existingKeys.contains(key)) {
+        if (existingKeys
+            .contains(key)) {
           duplicateCount++;
           continue;
         }
 
-        final soldText = value(
+        final soldText =
+            value(
           row,
           soldIndex,
         ).toLowerCase();
@@ -522,13 +740,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
         int id =
             int.tryParse(
-              value(row, idIndex),
+              value(
+                row,
+                idIndex,
+              ),
             ) ??
             0;
 
         if (id <= 0 ||
             usedIds.contains(id)) {
-          while (usedIds.contains(nextId)) {
+          while (
+              usedIds.contains(nextId)) {
             nextId++;
           }
 
@@ -572,6 +794,7 @@ class _HomeScreenState extends State<HomeScreen> {
         );
 
         existingKeys.add(key);
+
         addedCount++;
       }
 
@@ -614,16 +837,20 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('بيع الكرت'),
+          title:
+              const Text('بيع الكرت'),
           content: Column(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize:
+                MainAxisSize.min,
             crossAxisAlignment:
                 CrossAxisAlignment.start,
             children: [
               Text(
                 'رقم الكرت: ${voucher.username}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
+                style:
+                    const TextStyle(
+                  fontWeight:
+                      FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 8),
@@ -638,7 +865,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     TextDirection.rtl,
                 decoration:
                     const InputDecoration(
-                  labelText: 'اسم المشتري',
+                  labelText:
+                      'اسم المشتري',
                   hintText:
                       'مثلاً Mohammed',
                   border:
@@ -650,9 +878,12 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
+                Navigator.pop(
+                  context,
+                );
               },
-              child: const Text('إلغاء'),
+              child:
+                  const Text('إلغاء'),
             ),
             FilledButton.icon(
               onPressed: () {
@@ -661,11 +892,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller.text.trim(),
                 );
               },
-              icon: const Icon(
-                Icons.check,
+              icon:
+                  const Icon(Icons.check),
+              label: const Text(
+                'تأكيد البيع',
               ),
-              label:
-                  const Text('تأكيد البيع'),
             ),
           ],
         );
@@ -686,7 +917,9 @@ class _HomeScreenState extends State<HomeScreen> {
             : buyerName;
 
     voucher.soldTime =
-        formatDateTime(DateTime.now());
+        formatDateTime(
+      DateTime.now(),
+    );
 
     setState(() {});
 
@@ -720,7 +953,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   false,
                 );
               },
-              child: const Text('لا'),
+              child:
+                  const Text('لا'),
             ),
             FilledButton(
               onPressed: () {
@@ -729,7 +963,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   true,
                 );
               },
-              child: const Text('نعم'),
+              child:
+                  const Text('نعم'),
             ),
           ],
         );
@@ -756,25 +991,30 @@ class _HomeScreenState extends State<HomeScreen> {
   String formatDateTime(
     DateTime dateTime,
   ) {
-    final day = dateTime.day
-        .toString()
-        .padLeft(2, '0');
+    final day =
+        dateTime.day
+            .toString()
+            .padLeft(2, '0');
 
-    final month = dateTime.month
-        .toString()
-        .padLeft(2, '0');
+    final month =
+        dateTime.month
+            .toString()
+            .padLeft(2, '0');
 
-    final year = (dateTime.year % 100)
-        .toString()
-        .padLeft(2, '0');
+    final year =
+        (dateTime.year % 100)
+            .toString()
+            .padLeft(2, '0');
 
-    final hour = dateTime.hour
-        .toString()
-        .padLeft(2, '0');
+    final hour =
+        dateTime.hour
+            .toString()
+            .padLeft(2, '0');
 
-    final minute = dateTime.minute
-        .toString()
-        .padLeft(2, '0');
+    final minute =
+        dateTime.minute
+            .toString()
+            .padLeft(2, '0');
 
     return '$day-$month-$year '
         '$hour:$minute';
@@ -785,9 +1025,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   List<Voucher> get filteredVouchers {
-    final query = searchController.text
-        .trim()
-        .toLowerCase();
+    final query =
+        searchController.text
+            .trim()
+            .toLowerCase();
 
     return vouchers.where((voucher) {
       if (selectedProfile != 'الكل' &&
@@ -802,7 +1043,8 @@ class _HomeScreenState extends State<HomeScreen> {
         return false;
       }
 
-      if (filter == VoucherFilter.sold &&
+      if (filter ==
+              VoucherFilter.sold &&
           !voucher.sold) {
         return false;
       }
@@ -863,7 +1105,8 @@ class _HomeScreenState extends State<HomeScreen> {
             .toList()
         : vouchers;
 
-    final rows = <List<dynamic>>[];
+    final rows =
+        <List<dynamic>>[];
 
     if (remainingOnly) {
       rows.add([
@@ -908,7 +1151,9 @@ class _HomeScreenState extends State<HomeScreen> {
           voucher.timeLimit,
           voucher.dataLimit,
           voucher.comment,
-          voucher.sold ? 'YES' : 'NO',
+          voucher.sold
+              ? 'YES'
+              : 'NO',
           voucher.buyerName,
           voucher.soldTime,
         ]);
@@ -927,7 +1172,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final csv = await createCsv(
+    final csv =
+        await createCsv(
       remainingOnly: true,
     );
 
@@ -946,7 +1192,8 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    final csv = await createCsv(
+    final csv =
+        await createCsv(
       remainingOnly: false,
     );
 
@@ -984,7 +1231,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
         text: message,
       );
-    } catch (e) {
+    } catch (_) {
       showMessage(
         'تعذر إنشاء ملف CSV',
       );
@@ -992,17 +1239,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String fileDate() {
-    final now = DateTime.now();
+    final now =
+        DateTime.now();
 
-    final y = now.year.toString();
+    final y =
+        now.year.toString();
 
-    final m = now.month
-        .toString()
-        .padLeft(2, '0');
+    final m =
+        now.month
+            .toString()
+            .padLeft(2, '0');
 
-    final d = now.day
-        .toString()
-        .padLeft(2, '0');
+    final d =
+        now.day
+            .toString()
+            .padLeft(2, '0');
 
     return '$y-$m-$d';
   }
@@ -1033,7 +1284,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 ListTile(
-                  leading: const Icon(
+                  leading:
+                      const Icon(
                     Icons
                         .inventory_2_outlined,
                   ),
@@ -1052,13 +1304,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(
+                  leading:
+                      const Icon(
                     Icons.backup_outlined,
                   ),
                   title: const Text(
                     'تصدير جميع الكروت',
                   ),
-                  subtitle: const Text(
+                  subtitle:
+                      const Text(
                     'يشمل حالة البيع واسم '
                     'المشتري ووقت البيع',
                   ),
@@ -1093,8 +1347,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void showMessage(String message) {
-    if (!mounted) return;
+  void showMessage(
+    String message,
+  ) {
+    if (!mounted) {
+      return;
+    }
 
     ScaffoldMessenger.of(context)
         .showSnackBar(
@@ -1132,17 +1390,15 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () =>
                   Navigator.of(context)
                       .pop(false),
-              child: const Text(
-                'إلغاء',
-              ),
+              child:
+                  const Text('إلغاء'),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(context)
                       .pop(true),
-              child: const Text(
-                'حذف الكل',
-              ),
+              child:
+                  const Text('حذف الكل'),
             ),
           ],
         );
@@ -1172,9 +1428,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(
+    BuildContext context,
+  ) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection:
+          TextDirection.rtl,
       child: Scaffold(
         appBar: _showHeader
             ? AppBar(
@@ -1190,28 +1449,35 @@ class _HomeScreenState extends State<HomeScreen> {
                 centerTitle: true,
                 actions: [
                   IconButton(
-                    tooltip: 'استيراد CSV',
+                    tooltip:
+                        'استيراد CSV',
                     onPressed:
                         showImportOptions,
-                    icon: const Icon(
+                    icon:
+                        const Icon(
                       Icons.upload_file,
                       size: 21,
                     ),
                   ),
                   IconButton(
                     tooltip: 'تصدير',
-                    onPressed: showExportMenu,
-                    icon: const Icon(
+                    onPressed:
+                        showExportMenu,
+                    icon:
+                        const Icon(
                       Icons.ios_share,
                       size: 21,
                     ),
                   ),
                   IconButton(
-                    tooltip: 'حذف الكل',
-                    onPressed: vouchers.isEmpty
-                        ? null
-                        : deleteAllVouchers,
-                    icon: const Icon(
+                    tooltip:
+                        'حذف الكل',
+                    onPressed:
+                        vouchers.isEmpty
+                            ? null
+                            : deleteAllVouchers,
+                    icon:
+                        const Icon(
                       Icons.delete_sweep,
                       size: 21,
                     ),
@@ -1259,15 +1525,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildVoucherList(),
                     ),
             ),
-
-            // ==================================================
-            // الحقوق + واتساب في الجهة المقابلة لزر الاستيراد
-            // ==================================================
             _buildBottomBar(),
           ],
         ),
-
-        // زر الاستيراد يبقى في الأسفل.
         floatingActionButton:
             FloatingActionButton.extended(
           onPressed: importCsv,
@@ -1387,7 +1647,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     return Expanded(
       child: Card(
-        margin: const EdgeInsets.symmetric(
+        margin:
+            const EdgeInsets.symmetric(
           horizontal: 2,
         ),
         child: Padding(
@@ -1451,7 +1712,8 @@ class _HomeScreenState extends State<HomeScreen> {
               InputDecoration(
             hintText:
                 'ابحث برقم الكرت أو الاسم...',
-            prefixIcon: const Icon(
+            prefixIcon:
+                const Icon(
               Icons.search,
               size: 21,
             ),
@@ -1465,7 +1727,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           searchController
                               .clear();
                         },
-                        icon: const Icon(
+                        icon:
+                            const Icon(
                           Icons.clear,
                           size: 20,
                         ),
@@ -1518,13 +1781,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   const Text('المتاح'),
               selected:
                   filter ==
-                      VoucherFilter
-                          .available,
+                      VoucherFilter.available,
               onSelected: (_) {
                 setState(() {
                   filter =
-                      VoucherFilter
-                          .available;
+                      VoucherFilter.available;
                 });
               },
             ),
@@ -1585,10 +1846,12 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: importCsv,
-              icon: const Icon(
+              icon:
+                  const Icon(
                 Icons.upload_file,
               ),
-              label: const Text(
+              label:
+                  const Text(
                 'استيراد ملف الكروت',
               ),
             ),
@@ -1603,13 +1866,15 @@ class _HomeScreenState extends State<HomeScreen> {
   // ============================================================
 
   Widget _buildVoucherList() {
-    final list = filteredVouchers;
+    final list =
+        filteredVouchers;
 
     if (list.isEmpty) {
       return const Center(
         child: Text(
           'لا توجد نتائج',
-          style: TextStyle(
+          style:
+              TextStyle(
             fontSize: 18,
           ),
         ),
@@ -1624,9 +1889,12 @@ class _HomeScreenState extends State<HomeScreen> {
         6,
         75,
       ),
-      itemCount: list.length,
-      itemBuilder: (context, index) {
-        final voucher = list[index];
+      itemCount:
+          list.length,
+      itemBuilder:
+          (context, index) {
+        final voucher =
+            list[index];
 
         final profileBackground =
             _profileBackgroundColor(
@@ -1639,18 +1907,25 @@ class _HomeScreenState extends State<HomeScreen> {
         );
 
         return Card(
-          color: profileBackground,
+          color:
+              profileBackground,
           margin:
               const EdgeInsets.symmetric(
             vertical: 2,
           ),
           elevation: 1,
-          shape: RoundedRectangleBorder(
+          shape:
+              RoundedRectangleBorder(
             borderRadius:
-                BorderRadius.circular(10),
+                BorderRadius.circular(
+              10,
+            ),
             side: BorderSide(
-              color: profileAccent
-                  .withValues(alpha: 0.28),
+              color:
+                  profileAccent
+                      .withValues(
+                alpha: 0.28,
+              ),
               width: 1,
             ),
           ),
@@ -1684,7 +1959,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: 7,
                     ),
                     Expanded(
-                      child: Column(
+                      child:
+                          Column(
                         crossAxisAlignment:
                             CrossAxisAlignment
                                 .start,
@@ -1709,7 +1985,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 width: 5,
                               ),
                               Flexible(
-                                child: Text(
+                                child:
+                                    Text(
                                   voucher
                                       .username,
                                   overflow:
@@ -1729,8 +2006,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(
                             height: 2,
                           ),
-
-                          // اسم Profile بلون خاص به
                           Container(
                             padding:
                                 const EdgeInsets
@@ -1751,7 +2026,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 5,
                               ),
                             ),
-                            child: Text(
+                            child:
+                                Text(
                               'Profile: ${voucher.profile}'
                               '${voucher.timeLimit.isEmpty ? '' : ' • ${voucher.timeLimit}'}',
                               style:
@@ -1797,7 +2073,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               voucher,
                             );
                           },
-                          icon: const Icon(
+                          icon:
+                              const Icon(
                             Icons.share,
                             size: 20,
                           ),
@@ -1855,7 +2132,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                 voucher,
                               );
                             },
-                            icon: const Icon(
+                            icon:
+                                const Icon(
                               Icons.undo,
                               size: 20,
                             ),
@@ -1864,8 +2142,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-
-                // بيانات البيع
                 if (voucher.sold) ...[
                   const Divider(
                     height: 8,
@@ -1873,8 +2149,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Row(
                     children: [
                       const Icon(
-                        Icons
-                            .person_outline,
+                        Icons.person_outline,
                         size: 17,
                       ),
                       const SizedBox(
@@ -1931,11 +2206,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> shareVoucher(
     Voucher voucher,
   ) async {
-    final text = voucher.timeLimit.isEmpty
-        ? 'كرت الإنترنت: ${voucher.username}'
-        : 'كرت الإنترنت: ${voucher.username}\n'
-            'الباقة: ${voucher.profile}\n'
-            'المدة: ${voucher.timeLimit}';
+    final text =
+        voucher.timeLimit.isEmpty
+            ? 'كرت الإنترنت: ${voucher.username}'
+            : 'كرت الإنترنت: ${voucher.username}\n'
+                'الباقة: ${voucher.profile}\n'
+                'المدة: ${voucher.timeLimit}';
 
     await Share.share(text);
   }
