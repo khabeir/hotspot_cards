@@ -460,10 +460,10 @@ jobs:
           mkdir -p android/keystore
 
           echo "$KEYSTORE_BASE64" | base64 --decode \
-            > android/keystore/baye_al_cards_release.jks
+            > android/keystore/baye_al_cards_release_jks.jks
 
           test -s \
-            android/keystore/baye_al_cards_release.jks
+            android/keystore/baye_al_cards_release_jks.jks
 
           echo "Release keystore prepared successfully."
 
@@ -496,7 +496,7 @@ jobs:
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
-          storeFile=keystore/baye_al_cards_release.jks
+          storeFile=keystore/baye_al_cards_release_jks.jks
           EOF
 
           echo "key.properties created."
@@ -675,7 +675,7 @@ jobs:
           echo "========================================"
 
           ls -lh \
-            android/keystore/baye_al_cards_release.jks
+            android/keystore/baye_al_cards_release_jks.jks
 
 
       # ============================================================
@@ -752,4 +752,4 @@ jobs:
         if: always()
         run: |
           rm -f android/key.properties
-          rm -f android/keystore/baye_al_cards_release.jks
+          rm -f android/keystore/baye_al_cards_release_jks.jks
