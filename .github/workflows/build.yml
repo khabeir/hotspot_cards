@@ -44,7 +44,62 @@ jobs:
 
 
       # ============================================================
-      # 4. Configure app name
+      # 4. Configure Android JVM 17
+      #
+      # مهم جداً:
+      # إصلاح تعارض Java 1.8 مع Kotlin 17
+      # ويطبق الإعداد على جميع Android subprojects،
+      # بما فيها receive_sharing_intent.
+      # ============================================================
+      - name: Configure Android JVM 17
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path("android/build.gradle.kts")
+
+          text = gradle.read_text(encoding="utf-8")
+
+          jvm_config = r'''
+
+          // ==========================================================
+          // Global Java / Kotlin JVM target
+          // ==========================================================
+
+          subprojects {
+              tasks.withType<JavaCompile>().configureEach {
+                  sourceCompatibility = "17"
+                  targetCompatibility = "17"
+              }
+
+              tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+                  compilerOptions {
+                      jvmTarget.set(
+                          org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+                      )
+                  }
+              }
+          }
+          '''
+
+          if "Global Java / Kotlin JVM target" not in text:
+              text += jvm_config
+
+          gradle.write_text(text, encoding="utf-8")
+
+          print("Global Java/Kotlin JVM 17 configured.")
+          PY
+
+          echo
+          echo "========================================"
+          echo "ANDROID BUILD.GRADLE.KTS"
+          echo "========================================"
+
+          cat android/build.gradle.kts
+
+
+      # ============================================================
+      # 5. Configure app name
       # ============================================================
       - name: Configure app name
         run: |
@@ -80,7 +135,7 @@ jobs:
 
 
       # ============================================================
-      # 5. Install launcher icon
+      # 6. Install launcher icon
       # ============================================================
       - name: Install app icon
         run: |
@@ -117,23 +172,24 @@ jobs:
 
 
       # ============================================================
-      # 6. Remove Flutter adaptive launcher icon
-      #
-      # حتى لا يستمر Android في استخدام أيقونة Flutter الافتراضية
+      # 7. Remove default adaptive launcher icon
       # ============================================================
       - name: Remove default adaptive icon
         run: |
           rm -rf android/app/src/main/res/mipmap-anydpi-v26
           rm -rf android/app/src/main/res/mipmap-anydpi
 
-          rm -f android/app/src/main/res/drawable/ic_launcher_foreground.xml
-          rm -f android/app/src/main/res/drawable/ic_launcher_foreground.png
+          rm -f \
+            android/app/src/main/res/drawable/ic_launcher_foreground.xml
+
+          rm -f \
+            android/app/src/main/res/drawable/ic_launcher_foreground.png
 
           echo "Default adaptive launcher icon removed."
 
 
       # ============================================================
-      # 7. Configure launcher icon in manifest
+      # 8. Configure launcher icon in manifest
       # ============================================================
       - name: Configure launcher manifest
         run: |
@@ -145,22 +201,23 @@ jobs:
               "android/app/src/main/AndroidManifest.xml"
           )
 
-          text = manifest.read_text(encoding="utf-8")
+          text = manifest.read_text(
+              encoding="utf-8"
+          )
 
-          # Ensure android:icon exists.
-          if 'android:icon="@mipmap/ic_launcher"' not in text:
-              text = text.replace(
-                  "<application",
-                  '<application android:icon="@mipmap/ic_launcher"',
-                  1
-              )
-
-          # Replace any generated icon value.
+          # Remove any existing android:icon.
           text = re.sub(
-              r'android:icon="[^"]*"',
-              'android:icon="@mipmap/ic_launcher"',
+              r'\s+android:icon="[^"]*"',
+              '',
               text,
               count=1
+          )
+
+          # Add our launcher icon.
+          text = text.replace(
+              "<application",
+              '<application android:icon="@mipmap/ic_launcher"',
+              1
           )
 
           manifest.write_text(
@@ -173,7 +230,7 @@ jobs:
 
 
       # ============================================================
-      # 8. Configure MainActivity
+      # 9. Configure MainActivity
       #
       # يحول ACTION_VIEW إلى ACTION_SEND حتى يستطيع
       # receive_sharing_intent استقبال ملف CSV.
@@ -217,10 +274,12 @@ jobs:
                       Intent.ACTION_SEND
                   ).apply {
                       type = source.type ?: "text/csv"
+
                       putExtra(
                           Intent.EXTRA_STREAM,
                           uri
                       )
+
                       addFlags(source.flags)
                   }
 
@@ -233,7 +292,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Configure CSV Open With + Share
+      # 10. Configure CSV Open With + Share
       # ============================================================
       - name: Configure CSV open-with support
         run: |
@@ -272,7 +331,10 @@ jobs:
           activity_body = match.group(2)
           activity_close = match.group(3)
 
-          # Remove previously generated CSV filters if any.
+          # ----------------------------------------------------------
+          # Remove previously generated CSV intent filters.
+          # ----------------------------------------------------------
+
           activity_body = re.sub(
               r'\s*<intent-filter>\s*'
               r'<action android:name="android\.intent\.action\.VIEW"\s*/>\s*'
@@ -294,6 +356,10 @@ jobs:
               activity_body,
               flags=re.DOTALL
           )
+
+          # ----------------------------------------------------------
+          # Add CSV VIEW filters.
+          # ----------------------------------------------------------
 
           filters = r'''
               <intent-filter>
@@ -359,7 +425,7 @@ jobs:
 
 
       # ============================================================
-      # 10. Remove default Flutter test
+      # 11. Remove default Flutter test
       # ============================================================
       - name: Remove default Flutter test
         run: |
@@ -367,7 +433,7 @@ jobs:
 
 
       # ============================================================
-      # 11. Get dependencies
+      # 12. Get dependencies
       # ============================================================
       - name: Flutter pub get
         run: |
@@ -375,7 +441,7 @@ jobs:
 
 
       # ============================================================
-      # 12. Analyze
+      # 13. Analyze
       # ============================================================
       - name: Flutter analyze
         run: |
@@ -383,7 +449,7 @@ jobs:
 
 
       # ============================================================
-      # 13. Prepare release keystore
+      # 14. Prepare release keystore
       # ============================================================
       - name: Prepare release keystore
         env:
@@ -406,7 +472,7 @@ jobs:
 
 
       # ============================================================
-      # 14. Create key.properties
+      # 15. Create key.properties
       # ============================================================
       - name: Create key.properties
         env:
@@ -440,9 +506,9 @@ jobs:
 
 
       # ============================================================
-      # 15. Configure release signing
+      # 16. Configure release signing + JVM 17
       #
-      # Flutter 3.35 generates Kotlin DSL:
+      # Flutter 3.35 generates:
       # android/app/build.gradle.kts
       # ============================================================
       - name: Configure release signing
@@ -458,12 +524,15 @@ jobs:
           }
 
           val keystoreProperties = Properties()
+
           val keystorePropertiesFile =
               rootProject.file("key.properties")
 
           if (keystorePropertiesFile.exists()) {
               keystoreProperties.load(
-                  FileInputStream(keystorePropertiesFile)
+                  FileInputStream(
+                      keystorePropertiesFile
+                  )
               )
           }
 
@@ -471,18 +540,47 @@ jobs:
               namespace = "com.khabeir.hotspot_cards"
 
               compileSdk = flutter.compileSdkVersion
+
               ndkVersion = flutter.ndkVersion
 
               defaultConfig {
-                  applicationId = "com.khabeir.hotspot_cards"
+                  applicationId =
+                      "com.khabeir.hotspot_cards"
 
-                  minSdk = flutter.minSdkVersion
-                  targetSdk = flutter.targetSdkVersion
+                  minSdk =
+                      flutter.minSdkVersion
 
-                  versionCode = flutter.versionCode
-                  versionName = flutter.versionName
+                  targetSdk =
+                      flutter.targetSdkVersion
+
+                  versionCode =
+                      flutter.versionCode
+
+                  versionName =
+                      flutter.versionName
               }
 
+              // ======================================================
+              // Java 17
+              // ======================================================
+              compileOptions {
+                  sourceCompatibility =
+                      JavaVersion.VERSION_17
+
+                  targetCompatibility =
+                      JavaVersion.VERSION_17
+              }
+
+              // ======================================================
+              // Kotlin JVM 17
+              // ======================================================
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              // ======================================================
+              // Release signing
+              // ======================================================
               signingConfigs {
                   create("release") {
                       keyAlias =
@@ -503,14 +601,18 @@ jobs:
                       storeFile =
                           keystoreProperties
                               .getProperty("storeFile")
-                              ?.let { file(it) }
+                              ?.let {
+                                  file(it)
+                              }
                   }
               }
 
               buildTypes {
                   getByName("release") {
                       signingConfig =
-                          signingConfigs.getByName("release")
+                          signingConfigs.getByName(
+                              "release"
+                          )
                   }
               }
           }
@@ -520,16 +622,23 @@ jobs:
           }
           EOF
 
-          echo "Release signing configured."
+          echo "Release signing and JVM 17 configured."
 
 
       # ============================================================
-      # 16. Verify Android configuration
+      # 17. Verify Android configuration
       # ============================================================
       - name: Verify Android configuration
         run: |
           echo "========================================"
-          echo "BUILD.GRADLE.KTS"
+          echo "ROOT BUILD.GRADLE.KTS"
+          echo "========================================"
+
+          cat android/build.gradle.kts
+
+          echo
+          echo "========================================"
+          echo "APP BUILD.GRADLE.KTS"
           echo "========================================"
 
           cat android/app/build.gradle.kts
@@ -568,7 +677,7 @@ jobs:
 
 
       # ============================================================
-      # 17. Clean
+      # 18. Clean
       # ============================================================
       - name: Flutter clean
         run: |
@@ -576,7 +685,7 @@ jobs:
 
 
       # ============================================================
-      # 18. Build signed APK
+      # 19. Build signed APK
       # ============================================================
       - name: Build signed APK
         run: |
@@ -584,7 +693,7 @@ jobs:
 
 
       # ============================================================
-      # 19. Build signed AAB
+      # 20. Build signed AAB
       # ============================================================
       - name: Build signed AAB
         run: |
@@ -592,7 +701,7 @@ jobs:
 
 
       # ============================================================
-      # 20. Prepare release files
+      # 21. Prepare release artifacts
       # ============================================================
       - name: Prepare release artifacts
         run: |
@@ -606,11 +715,16 @@ jobs:
             build/app/outputs/bundle/release/app-release.aab \
             release/baye_al_cards-release.aab
 
+          echo
+          echo "========================================"
+          echo "RELEASE FILES"
+          echo "========================================"
+
           ls -lh release/
 
 
       # ============================================================
-      # 21. Upload APK
+      # 22. Upload APK
       # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -620,7 +734,7 @@ jobs:
 
 
       # ============================================================
-      # 22. Upload AAB
+      # 23. Upload AAB
       # ============================================================
       - name: Upload AAB
         uses: actions/upload-artifact@v4
@@ -630,7 +744,7 @@ jobs:
 
 
       # ============================================================
-      # 23. Cleanup signing files
+      # 24. Cleanup signing files
       # ============================================================
       - name: Cleanup signing files
         if: always()
