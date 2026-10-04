@@ -104,6 +104,7 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           manifest = Path(
               "android/app/src/main/AndroidManifest.xml"
@@ -113,9 +114,19 @@ jobs:
               encoding="utf-8"
           )
 
-          text = text.replace(
-              'android:label="${applicationName}"',
-              'android:label="@string/app_name"'
+          # Force the visible application name.
+          text = re.sub(
+              r'<application\b([^>]*)>',
+              lambda m:
+                  '<application'
+                  + re.sub(
+                      r'\s+android:label="[^"]*"',
+                      '',
+                      m.group(1)
+                  )
+                  + ' android:label="@string/app_name">',
+              text,
+              count=1
           )
 
           manifest.write_text(
@@ -123,8 +134,14 @@ jobs:
               encoding="utf-8"
           )
 
-          print("App name configured successfully.")
+          print("App name forced to: بائع الكروت")
           PY
+
+          echo "========================================"
+          echo "APPLICATION LINE"
+          echo "========================================"
+          grep -n "<application" \
+            android/app/src/main/AndroidManifest.xml
 
 
       # ============================================================
@@ -460,10 +477,10 @@ jobs:
           mkdir -p android/keystore
 
           echo "$KEYSTORE_BASE64" | base64 --decode \
-            > android/keystore/baye_al_cards_new.jks
+            > android/keystore/baye_al_cards_release.jks
 
           test -s \
-            android/keystore/baye_al_cards_new.jks
+            android/keystore/baye_al_cards_release.jks
 
           echo "Release keystore prepared successfully."
 
@@ -496,7 +513,7 @@ jobs:
           storePassword=$KEYSTORE_PASSWORD
           keyPassword=$KEY_PASSWORD
           keyAlias=$KEY_ALIAS
-          storeFile=keystore/baye_al_cards_new.jks
+          storeFile=keystore/baye_al_cards_release.jks
           EOF
 
           echo "key.properties created."
@@ -598,11 +615,11 @@ jobs:
                           )
 
                       storeFile =
-                          keystoreProperties
-                              .getProperty("storeFile")
-                              ?.let {
-                                  rootProject.file(it)
-                              }
+    keystoreProperties
+        .getProperty("storeFile")
+        ?.let {
+            rootProject.file(it)
+        }
                   }
               }
 
@@ -675,7 +692,7 @@ jobs:
           echo "========================================"
 
           ls -lh \
-            android/keystore/baye_al_cards_new.jks
+            android/keystore/baye_al_cards_release.jks
 
 
       # ============================================================
@@ -752,4 +769,4 @@ jobs:
         if: always()
         run: |
           rm -f android/key.properties
-          rm -f android/keystore/baye_al_cards_new.jks
+          rm -f android/keystore/baye_al_cards_release.jks
