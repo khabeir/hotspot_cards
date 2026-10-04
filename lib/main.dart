@@ -1222,14 +1222,16 @@ class _HomeScreenState extends State<HomeScreen> {
         encoding: utf8,
       );
 
-      await Share.shareXFiles(
-        [
-          XFile(
-            file.path,
-            mimeType: 'text/csv',
-          ),
-        ],
-        text: message,
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile(
+              file.path,
+              mimeType: 'text/csv',
+            ),
+          ],
+          text: message,
+        ),
       );
     } catch (_) {
       showMessage(
@@ -2213,6 +2215,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 'الباقة: ${voucher.profile}\n'
                 'المدة: ${voucher.timeLimit}';
 
-    await Share.share(text);
+    await SharePlus.instance.share(
+      ShareParams(
+        text: text,
+      ),
+    );
   }
 }
